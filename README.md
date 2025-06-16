@@ -1,14 +1,18 @@
 # GitHub Enterprise Cloud SSO CLI
 
-A command-line tool to automate GitHub Enterprise Cloud SSO setup with Microsoft Entra ID.
+A command-line tool to automate GitHub Enterprise Cloud SAML SSO setup with Microsoft Entra ID.
 
-## Features
+## 🚀 Features
 
-- 🔐 **Easy Authentication**: Device flow authentication for both GitHub and Azure
-- 🚀 **Automated Setup**: One-command SAML SSO configuration
-- ✅ **Validation**: Built-in checks for configuration and prerequisites
-- 🛡️ **Safe Setup**: Dry-run mode and clear warnings before making changes
-- 📋 **Configuration Management**: Store and manage multiple enterprise configurations
+- 🏢 **Automated Entra ID Setup**: Creates and configures GitHub Enterprise Managed User application
+- 🔧 **SAML Configuration**: Automates SAML settings, certificates, and URLs in Entra ID
+- 👥 **User Assignment**: Automatically assigns current user with Enterprise Owner role
+- 🔄 **SCIM Provisioning**: Interactive setup for automatic user provisioning
+- 📋 **Manual Guidance**: Provides exact values and opens GitHub SAML settings page
+- ✅ **Validation**: Built-in checks for enterprise access and prerequisites
+- 🛡️ **Safe Setup**: Dry-run mode and confirmation prompts for critical actions
+
+This tool automates the complex process described in [Microsoft's GitHub Enterprise SSO documentation](https://learn.microsoft.com/en-us/entra/identity/saas-apps/github-tutorial). Always verify your configuration in both GitHub and Entra ID admin portals after setup.
 
 ## Installation
 
@@ -18,57 +22,65 @@ npm install -g ghec-sso-cli
 
 ## Quick Start
 
-1. **Authenticate with both services:**
+1. **Authenticate with Azure:**
    ```bash
    ghec-sso auth login
    ```
 
 2. **Set up SSO for your enterprise:**
    ```bash
-   ghec-sso setup --enterprise mycompany --tenant mycompany.onmicrosoft.com
+   ghec-sso setup --enterprise mycompany --domain mycompany.onmicrosoft.com
    ```
 
-3. **Validate the configuration:**
-   ```bash
-   ghec-sso validate
-   ```
+3. **Follow the interactive prompts for SCIM setup after GitHub SAML is configured**
 
 ## Commands
 
 ### `ghec-sso setup`
 
-Configure SAML SSO between GitHub Enterprise Cloud and Entra ID.
+Automate Entra ID configuration and guide GitHub SAML setup.
 
 ```bash
 ghec-sso setup [options]
 
 Options:
-  -e, --enterprise <name>   GitHub Enterprise name
-  -t, --tenant <domain>     Entra ID tenant domain
+  -e, --enterprise <name>   GitHub Enterprise name (e.g. for /enterprises/my-company, use my-company)
+  -d, --domain <domain>     Organization domain (e.g. for company.onmicrosoft.com, use company)
   --dry-run                 Show what would be done without making changes
+  --force                   Force setup even if validation fails
 ```
+
+**What it does:**
+1. ✅ Validates access
+2. 🏢 Creates GitHub Enterprise Managed User app in Entra ID
+3. ⚙️ Configures SAML settings (URLs, certificates, claims)
+4. 👤 Assigns current user as Enterprise Owner
+5. 📋 Outputs SAML values for manual GitHub configuration
+6. 🌐 Opens GitHub Enterprise SAML settings page
+7. 🔄 Optionally configures SCIM provisioning (interactive)
 
 **Example:**
 ```bash
 # Interactive setup
 ghec-sso setup
 
-# With parameters
-ghec-sso setup --enterprise mycompany --tenant mycompany.onmicrosoft.com
+# With parameters  
+ghec-sso setup --enterprise mycompany --domain company
 
 # Dry run to see what would happen
-ghec-sso setup --enterprise mycompany --tenant mycompany.onmicrosoft.com --dry-run
+ghec-sso setup --enterprise mycompany --domain company --dry-run
+
 ```
 
 ### `ghec-sso auth`
 
-Manage authentication with GitHub and Azure.
+Manage authentication with Azure.
 
 ```bash
-# Login to both services
+# Login to Azure
 ghec-sso auth login
 
-# Check authentication status
+# Check authentication status and show enterprise access
 ghec-sso auth status
 
 # Clear stored authentication
@@ -77,14 +89,14 @@ ghec-sso auth logout
 
 ### `ghec-sso validate`
 
-Validate current SSO setup and configuration.
+Validate enterprise access and SSO prerequisites.
 
 ```bash
 # Validate current enterprise
 ghec-sso validate
 
-# Validate specific enterprise
-ghec-sso validate --enterprise mycompany
+# Validate specific enterprise  
+ghec-sso validate --enterprise mycompany --force
 ```
 
 ## Prerequisites
@@ -92,87 +104,118 @@ ghec-sso validate --enterprise mycompany
 ### Required Permissions
 
 **GitHub:**
-- Enterprise Owner role on the GitHub Enterprise account
-- Access to the root admin account (before SSO is enabled)
+- Personal Access Token with scopes:
+  - `admin:enterprise` (Enterprise administration)
+  - `admin:org` (Organization management) 
+  - `repo` (Repository access)
+- Enterprise Owner role on the target enterprise
 
 **Azure/Entra ID:**
 - Global Administrator or Application Administrator role
-- Ability to create Enterprise Applications
-- Access to download certificates and configure SAML
+- Permission to create Enterprise Applications
+- Permission to configure SAML and provisioning
 
 ### Required Information
 
-- GitHub Enterprise name/slug
-- Entra ID tenant domain (e.g., `company.onmicrosoft.com`)
+- GitHub Enterprise name (e.g., `mycompany`)
+- Organization domain (e.g., `mycompany.com`)
 - Admin access to both platforms
 
 ## Authentication
 
-The CLI uses device flow authentication for the best user experience:
+The CLI uses different authentication methods optimized for enterprise access:
 
-1. **GitHub**: Uses OAuth device flow (same as GitHub CLI)
-2. **Azure**: Attempts to use Azure CLI credentials first, falls back to device flow
+1. **Azure**: Device flow or Azure CLI credentials
+   - Attempts Azure CLI first for seamless experience
+   - Falls back to device flow authentication
 
-No need to manage personal access tokens or application secrets!
+## What the Setup Process Does
 
-## What It Does
+### Automated Entra ID Configuration:
+1. 🔍 **Finds GitHub Enterprise Managed User template** in application gallery
+2. 🏢 **Creates Enterprise Application** with proper naming
+3. ⚙️ **Configures SAML settings:**
+   - Entity ID: `https://github.com/enterprises/{enterprise}`
+   - Reply URL: `https://github.com/enterprises/{enterprise}/saml/consume`
+   - Sign-on URL: `https://github.com/enterprises/{enterprise}/sso`
+4. 🔐 **Generates SAML signing certificate**
+5. 👤 **Assigns current user with Enterprise Owner role**
+6. 📋 **Extracts SAML configuration values**
 
-The setup process will:
+### Manual GitHub Configuration:
+7. 🌐 **Opens GitHub Enterprise SAML settings page** automatically
+8. 📋 **Provides exact values** to copy into GitHub:
+   - Sign-On URL
+   - Issuer (Entity ID)  
+   - Certificate (Base64)
 
-1. **Create Entra ID Enterprise Application** from the GitHub gallery
-2. **Configure SAML settings** with the correct URLs and claims
-3. **Download SAML certificate** from Entra ID
-4. **Configure GitHub Enterprise SSO** with the certificate and endpoints
-5. **Test the configuration** to ensure it's working
+### Optional SCIM Provisioning:
+9. ⏸️ **Pauses for GitHub SAML configuration**
+10. 🔄 **Configures SCIM provisioning** (if confirmed):
+    - Auto-generates SCIM endpoint: `https://api.github.com/scim/v2/enterprises/{enterprise}/`
+    - Configures provided SCIM token
+    - Creates synchronization job
+    - Tests SCIM connection
+    - Optionally starts automatic provisioning
 
-## Important Warnings
+## Important Notes
 
+### GitHub Enterprise Types
+- ✅ **GitHub Enterprise Cloud** - Fully supported
+- ✅ **Trial Enterprises** - Fully supported
+- ❌ **Organizations** - Not supported (use organization SAML instead)
+
+### SCIM Provisioning
+- 🔄 **Automatic Setup** - CLI configures everything in Entra ID
+- 📋 **Manual GitHub Setup Required** - Must enable SAML SSO in GitHub first
+- 🔗 **Auto-generated Endpoint** - No need to manually construct SCIM URL
+- ⚡ **Optional Auto-start** - Can immediately begin provisioning with confirmation
+
+### Security Considerations
 ⚠️ **Before running setup:**
-
-- This will configure SSO for your entire GitHub Enterprise
-- Ensure you have admin access to both GitHub and Entra ID
-- Users will need to be provisioned through Entra ID after setup
-- Make sure you have recovery access to your GitHub Enterprise
+- Ensure you have recovery access to GitHub Enterprise
+- This configures SSO for the entire enterprise
+- All users will need Entra ID accounts after setup
 
 ⚠️ **After setup:**
-
-- Add users/groups to the Entra ID Enterprise Application
-- Users will need to authenticate via Entra ID to access GitHub
-- Keep your SAML certificate up to date
+- Add additional users/groups to the Entra ID application
+- Assign Copilot seats to users in GitHub if required
 
 ## Configuration Storage
 
-Configuration is stored locally using the `conf` package:
-
+Local configuration is stored securely:
 - **Windows**: `%APPDATA%\ghec-sso-cli\config.json`
-- **macOS**: `~/Library/Preferences/ghec-sso-cli/config.json`  
+- **macOS**: `~/Library/Preferences/ghec-sso-cli/config.json`
 - **Linux**: `~/.config/ghec-sso-cli/config.json`
+
+Contains:
+- Enterprise configurations and last setup status
 
 ## Troubleshooting
 
-### Common Issues
+### Authentication Issues
 
-**"Cannot access enterprise"**
-- Verify you're signed in with the root admin account
-- Check that the enterprise name is correct
-- Ensure you have Enterprise Owner permissions
+**"Bad credentials" or 401 errors:**
+```bash
+# Check current authentication
+ghec-sso auth status
 
-**"Authentication failed"**
-- Try `ghec-sso auth logout` followed by `ghec-sso auth login`
-- Check your internet connection
-- Verify you have the required permissions
+# Re-authenticate
+ghec-sso auth logout
+ghec-sso auth login
+```
 
-**"SAML configuration test failed"**
-- This is often normal immediately after setup
-- Manual verification in the GitHub admin panel is recommended
-- Allow a few minutes for configuration to propagate
+### Common SAML Setup Issues
 
-### Getting Help
+**Entra ID application creation fails:**
+- Verify Azure permissions (Application Administrator role)
+- Check tenant settings allow enterprise app creation
+- Try manual creation if automated approach fails
 
-1. **Check configuration**: `ghec-sso validate`
-2. **Check authentication**: `ghec-sso auth status`
-3. **View logs**: Configuration and errors are logged locally
-4. **Manual verification**: Always verify SSO works in the GitHub admin panel
+**SCIM provisioning fails:**
+- Ensure GitHub SAML SSO is enabled first
+- Verify SCIM token has correct permissions
+- Check SCIM endpoint URL is accessible
 
 ## Development
 
@@ -185,17 +228,17 @@ npm install
 # Build the project
 npm run build
 
-# Run in development mode
-npm run dev
+# Run in development mode  
+npm run dev -- auth status
 
-# Run tests
-npm test
+# Test specific command
+npm run dev -- setup --dry-run -e test -d test.com
 ```
 
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
 4. Add tests if applicable
 5. Submit a pull request
@@ -204,14 +247,17 @@ npm test
 
 MIT License - see LICENSE file for details.
 
-## Security
+## Security & Privacy
 
-This tool handles authentication tokens and certificates. Always:
-- Keep your system updated
-- Don't share configuration files
-- Use the logout command when done
-- Verify any changes in the admin portals
+This tool handles sensitive authentication data:
+- 🔑 **Azure tokens** are temporary and not persisted
+- 📜 **SAML certificates** are only displayed, not stored
+- 🚫 **No data is sent to external services**
+
+**Best Practices:**
+- Use dedicated PATs with minimal required scopes
+- Run `ghec-sso auth logout` when finished
+- Regularly rotate PATs and SAML certificates
+- Verify all changes in admin portals
 
 ---
-
-**Note**: This tool automates the manual process described in the [Microsoft Learn documentation](https://learn.microsoft.com/en-us/entra/identity/saas-apps/github-tutorial). Always verify your setup in both the GitHub and Entra ID admin portals after running the tool.

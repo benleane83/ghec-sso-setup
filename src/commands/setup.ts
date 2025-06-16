@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { AuthService } from '../services/auth';
-import { GitHubService } from '../services/github';
+// import { GitHubService } from '../services/github';
 import { AzureService } from '../services/azure';
 import { ConfigManager } from '../utils/config';
 import open from 'open';
@@ -47,14 +47,14 @@ export const setupCommand = new Command('setup')
           {
             type: 'input',
             name: 'enterprise',
-            message: 'Enter your GitHub Enterprise name:',
+            message: 'Enter your GitHub Enterprise name (e.g. for /enterprises/my-company, use my-company):',
             when: !config.enterprise,
             validate: (input: string) => input.length > 0 || 'Enterprise name is required'
           },
           {
             type: 'input',
             name: 'domain',
-            message: 'Enter your organization domain (e.g., company.com):',
+            message: 'Enter your organizations Entra domain (e.g. for company.onmicrosoft.com, use company):',
             when: !config.domain,
             validate: (input: string) => input.length > 0 || 'Domain is required'
           }
@@ -291,8 +291,9 @@ export const setupCommand = new Command('setup')
           }
           
           console.log(chalk.green.bold('\n🎉 Setup Complete!'));
-          console.log(chalk.gray('Your GitHub Enterprise SSO with Entra ID is now configured.'));
+          console.log(chalk.gray('Your GitHub Enterprise SAML SSO with Entra ID is now configured.'));
           console.log(chalk.gray('Users can sign in using their organizational credentials.\n'));
+          console.log(chalk.gray('Please add additional Entra users or groups to your app as required.\n'));
           
         } catch (error: any) {
           console.log(chalk.red(`❌ Setup failed: ${error.message}`));
