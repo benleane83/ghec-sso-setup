@@ -23,10 +23,18 @@ export class AuthService {
       const auth = createOAuthDeviceAuth({
         clientType: "oauth-app",
         clientId: "Iv1.b507a08c87ecfe98", // GitHub CLI client ID (public)
-        scopes: ["admin:enterprise", "read:org", "write:org"],
+        scopes: [
+          "admin:enterprise",     // Enterprise administration
+          "read:enterprise",      // Read enterprise data
+          "write:org",           // Organization management
+          "read:org",            // Organization reading
+          "repo",                // Repository access (might be needed)
+          "user"                 // User information
+        ],
         onVerification(verification: any) {
           console.log(chalk.yellow(`\n📱 Please visit: ${verification.verification_uri}`));
           console.log(chalk.yellow(`🔑 Enter code: ${verification.user_code}\n`));
+          console.log(chalk.gray('Make sure to approve ALL requested permissions, especially enterprise scopes!'));
           
           // Auto-open browser
           open(verification.verification_uri).catch(() => {
@@ -36,14 +44,24 @@ export class AuthService {
       });
 
       console.log(chalk.gray('⏳ Waiting for authentication...'));
-      const { token } = await auth({
+      console.log(chalk.gray('Requesting scopes: admin:enterprise, read:enterprise, write:org, read:org, repo, user'));
+      console.log(chalk.yellow('Important: Make sure to approve enterprise permissions in the browser!'));
+      
+      const authResult = await auth({
         type: "oauth",
       });
 
-      // Store token securely
-      this.configManager.setGitHubToken(token);
+      console.log(chalk.gray('✅ Device flow completed, validating token...'));
+      console.log(chalk.gray(`Received token type: ${authResult.type}`));
       
-      return token;
+      // Validate the token has the right permissions
+      if (await this.validateGitHubToken(authResult.token)) {
+        // Store token securely
+        this.configManager.setGitHubToken(authResult.token);
+        return authResult.token;
+      } else {
+        throw new Error('Token validation failed - insufficient permissions. Try using a Personal Access Token instead.');
+      }
     } catch (error: any) {
       console.log(chalk.yellow('⚠️  Device flow failed, falling back to PAT...'));
       return await this.promptForGitHubPAT();
@@ -87,13 +105,20 @@ export class AuthService {
     
     return credential;
   }
-
   private async promptForGitHubPAT(): Promise<string> {
     const inquirer = await import('inquirer');
     
     console.log(chalk.cyan('\n🔑 GitHub Personal Access Token Required\n'));
-    console.log(chalk.gray('Please create a token at: https://github.com/settings/tokens/new'));
-    console.log(chalk.gray('Required scopes: admin:enterprise, read:org, write:org\n'));
+    console.log(chalk.yellow('Device flow authentication failed to get enterprise permissions.'));
+    console.log(chalk.yellow('Please create a Personal Access Token with enterprise scopes.\n'));
+    console.log(chalk.gray('1. Go to: https://github.com/settings/tokens/new'));
+    console.log(chalk.gray('2. Select these scopes:'));
+    console.log(chalk.gray('   ✅ admin:enterprise (Enterprise administration)'));
+    console.log(chalk.gray('   ✅ read:enterprise (Read enterprise data)'));
+    console.log(chalk.gray('   ✅ write:org (Organization management)'));
+    console.log(chalk.gray('   ✅ read:org (Read organization data)'));
+    console.log(chalk.gray('   ✅ repo (Repository access)'));
+    console.log(chalk.gray('3. Generate token and copy it\n'));
     
     const { token } = await inquirer.default.prompt([{
       type: 'password',
@@ -103,25 +128,53 @@ export class AuthService {
     }]);
 
     // Validate and store token
+    console.log(chalk.gray('Validating token...'));
     if (await this.validateGitHubToken(token)) {
       this.configManager.setGitHubToken(token);
+      console.log(chalk.green('✅ Token validated and stored'));
       return token;
     } else {
-      throw new Error('Invalid GitHub token or insufficient permissions');
+      throw new Error('Invalid GitHub token or insufficient permissions. Please check the token has enterprise scopes.');
     }
   }
-
-  private async validateGitHubToken(token: string): Promise<boolean> {
+  async validateGitHubToken(token: string): Promise<boolean> {
     try {
       const { Octokit } = await import('@octokit/rest');
-      const octokit = new Octokit({ auth: token });
+      const octokit = new Octokit({ 
+        auth: token,
+        baseUrl: 'https://api.github.com'
+      });
       
-      // Test token by getting user info
+      // Test 1: Get user info
       const { data: user } = await octokit.rest.users.getAuthenticated();
+      console.log(chalk.gray(`   Authenticated as: ${user.login} (${user.email || 'no email'})`));
       
-      // Check if user has enterprise access (simplified check)
+      // Test 2: Check token scopes
+      const response = await octokit.request('GET /user');
+      const scopes = response.headers['x-oauth-scopes'];
+      console.log(chalk.gray(`   Token scopes: ${scopes || 'none'}`));
+      
+      // Test 3: Check if we can access organizations
+      try {
+        const { data: orgs } = await octokit.rest.orgs.listForAuthenticatedUser();
+        console.log(chalk.gray(`   Organization access: ${orgs.length} organizations`));
+      } catch (orgError: any) {
+        console.log(chalk.yellow(`   ⚠️  Limited organization access: ${orgError.message}`));
+      }
+      
+      // Test 4: Test a simple enterprise-related endpoint
+      try {
+        // This might fail for trial enterprises, but we'll see what error we get
+        const enterpriseTest = await octokit.request('GET /user/enterprises');
+        console.log(chalk.gray(`   Enterprise access test: ${enterpriseTest.data.length} enterprises`));
+      } catch (enterpriseError: any) {
+        console.log(chalk.yellow(`   ⚠️  Enterprise access test failed: ${enterpriseError.status} - ${enterpriseError.message}`));
+        // Don't fail validation just because of this - the error might be informative
+      }
+      
       return !!user;
-    } catch {
+    } catch (error: any) {
+      console.log(chalk.red(`   ❌ Token validation failed: ${error.message}`));
       return false;
     }
   }
@@ -144,5 +197,17 @@ export class AuthService {
   async logout(): Promise<void> {
     this.configManager.clearAuth();
     console.log(chalk.green('🗑️  Authentication tokens cleared'));
+  }
+
+  getStoredGitHubToken(): string | undefined {
+    return this.configManager.getGitHubToken();
+  }
+
+  async authenticateWithPAT(): Promise<string> {
+    console.log(chalk.cyan('🔑 GitHub Enterprise requires a Personal Access Token\n'));
+    console.log(chalk.yellow('Device flow OAuth cannot access enterprise scopes.'));
+    console.log(chalk.yellow('Please create a Personal Access Token instead.\n'));
+    
+    return await this.promptForGitHubPAT();
   }
 }

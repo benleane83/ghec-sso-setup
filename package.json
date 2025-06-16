@@ -23,11 +23,13 @@
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@octokit/auth-oauth-device": "^7.1.1",
     "@octokit/rest": "^20.0.2",
+    "@types/node-fetch": "^2.6.12",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",
     "conf": "^10.2.0",
     "dotenv": "^16.3.1",
     "inquirer": "^8.2.6",
+    "node-fetch": "^3.3.2",
     "open": "^8.4.2",
     "ora": "^5.4.1"
   },

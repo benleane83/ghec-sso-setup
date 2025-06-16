@@ -4,24 +4,17 @@ import { AzureService } from '../services/azure';
 export async function validatePrerequisites(
   githubService: GitHubService,
   azureService: AzureService,
-  config: any
+  config: any,
+  force?: boolean
 ): Promise<void> {
   // Validate GitHub Enterprise access
-  const githubValidation = await githubService.validateEnterpriseAccess(config.enterprise);
+  const githubValidation = await githubService.validateEnterpriseAccessWithFallback(config.enterprise, force);
   if (!githubValidation.success) {
     throw new Error(`GitHub validation failed: ${githubValidation.message}`);
   }
 
-  // Check if SSO is already configured
-  const ssoValidation = await githubService.validateSSOConfig(config.enterprise);
-  if (ssoValidation.success) {
-    throw new Error('SSO is already configured for this enterprise. Use validate command to check configuration.');
-  }
-
-  // Validate Azure access
-  const azureValidation = await azureService.validateEnterpriseApp();
-  // Note: This might show as failed if no GitHub apps exist yet, which is expected
-
+  // Note: SAML configuration validation removed since we're using manual setup
+  
   console.log('✅ All prerequisites validated successfully');
 }
 

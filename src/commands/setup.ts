@@ -1,183 +1,169 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import inquirer from 'inquirer';
-import ora from 'ora';
 import { AuthService } from '../services/auth';
 import { GitHubService } from '../services/github';
 import { AzureService } from '../services/azure';
 import { ConfigManager } from '../utils/config';
-import { validatePrerequisites } from '../utils/validation';
+import open from 'open';
+
+interface EntraAppConfig {
+  displayName: string;
+  signOnUrl: string;
+  entityId: string;
+  replyUrl: string;
+}
 
 export const setupCommand = new Command('setup')
-  .description('Configure SAML SSO between GitHub Enterprise Cloud and Entra ID')
+  .description('Setup GitHub Enterprise Cloud SSO with Entra ID')
   .option('-e, --enterprise <name>', 'GitHub Enterprise name')
-  .option('-t, --tenant <domain>', 'Entra ID tenant domain')
+  .option('-d, --domain <domain>', 'Your organization domain (e.g., company.com)')
   .option('--dry-run', 'Show what would be done without making changes')
+  .option('--force', 'Force setup even if validation fails (for trial enterprises)')
   .action(async (options) => {
     console.log(chalk.blue.bold('🚀 GitHub Enterprise Cloud SSO Setup\n'));
 
     try {
-      // Get configuration either from options or prompts
-      const config = await getSetupConfig(options);
+      // Validate authentication
+      const authService = new AuthService();
+      const githubToken = authService.getStoredGitHubToken();
       
-      // Show warnings
-      showWarnings();
-      
-      if (!options.dryRun) {
-        const { confirm } = await inquirer.prompt([{
-          type: 'confirm',
-          name: 'confirm',
-          message: 'Do you want to proceed with SSO setup?',
-          default: false
-        }]);
+      if (!githubToken) {
+        console.log(chalk.red('❌ Not authenticated with GitHub. Run: ghec-sso auth login-pat'));
+        return;
+      }      // Get configuration
+      const configManager = new ConfigManager();
+      let config = {
+        enterprise: options.enterprise,
+        domain: options.domain
+      };
 
-        if (!confirm) {
-          console.log(chalk.yellow('Setup cancelled.'));
-          return;
+      // Prompt for missing configuration
+      if (!config.enterprise || !config.domain) {
+        const inquirer = await import('inquirer');
+        
+        const missing = await inquirer.default.prompt([
+          {
+            type: 'input',
+            name: 'enterprise',
+            message: 'Enter your GitHub Enterprise name:',
+            when: !config.enterprise,
+            validate: (input: string) => input.length > 0 || 'Enterprise name is required'
+          },
+          {
+            type: 'input',
+            name: 'domain',
+            message: 'Enter your organization domain (e.g., company.com):',
+            when: !config.domain,
+            validate: (input: string) => input.length > 0 || 'Domain is required'
+          }
+        ]);
+
+        config = { ...config, ...missing };
+      }
+
+      console.log(chalk.cyan(`📋 Configuration:`));
+      console.log(chalk.gray(`   Enterprise: ${config.enterprise}`));
+      console.log(chalk.gray(`   Domain: ${config.domain}`));
+      console.log(chalk.gray(`   Mode: ${options.dryRun ? 'DRY RUN' : 'LIVE'}\n`));      // Initialize services
+      const githubService = new GitHubService(githubToken);
+      
+      // We'll initialize Azure service after we get Azure credentials
+      let azureService: AzureService | null = null;
+
+      // Step 2: Get Azure credentials
+      console.log(chalk.cyan('� Step 2: Getting Azure credentials...'));
+      try {
+        const authService = new AuthService();
+        const azureCredential = await authService.authenticateAzure();
+        azureService = new AzureService(azureCredential, config.domain);
+        console.log(chalk.green('✅ Azure authentication validated\n'));
+      } catch (error: any) {
+        console.log(chalk.red(`❌ Azure authentication failed: ${error.message}`));
+        console.log(chalk.yellow('Run: ghec-sso auth login'));
+        return;
+      }      // Step 3: Create/Configure Entra ID Enterprise Application
+      console.log(chalk.cyan('🏢 Step 3: Setting up Entra ID Enterprise Application...'));
+      
+      const appConfig = {
+        displayName: `GitHub Enterprise SSO - ${config.enterprise}`,
+        signOnUrl: `https://github.com/enterprises/${config.enterprise}/sso`,
+        entityId: `https://github.com/enterprises/${config.enterprise}`,
+        replyUrl: `https://github.com/enterprises/${config.enterprise}/saml/consume`
+      };
+
+      if (options.dryRun) {
+        console.log(chalk.yellow('🧪 DRY RUN: Would create Entra ID app with:'));
+        console.log(chalk.gray(`   Display Name: ${appConfig.displayName}`));
+        console.log(chalk.gray(`   Sign-On URL: ${appConfig.signOnUrl}`));
+        console.log(chalk.gray(`   Entity ID: ${appConfig.entityId}`));
+        console.log(chalk.gray(`   Reply URL: ${appConfig.replyUrl}\n`));
+      } else {
+        try {
+          const entraApp = await azureService!.createGitHubEnterpriseApp(config.enterprise);
+          await azureService!.configureSAMLSettings(entraApp.id, config.enterprise);
+          
+          console.log(chalk.green('✅ Entra ID Enterprise Application created\n'));
+          
+          // Step 4: Get SAML configuration details
+          console.log(chalk.cyan('⚙️  Step 4: Getting SAML configuration details...'));
+          const certificate = await azureService!.downloadSAMLCertificate(entraApp.id);
+          
+          console.log(chalk.green('✅ SAML configuration completed\n'));
+          
+          // Step 5: Output manual configuration details
+          console.log(chalk.green.bold('🎉 Setup Complete! Manual Configuration Required:\n'));
+          
+          console.log(chalk.blue('📋 GitHub Enterprise SAML Configuration:'));
+          console.log(chalk.gray('   Copy these values to GitHub Enterprise SAML settings:\n'));
+          
+          console.log(chalk.yellow('   Sign-On URL:'));
+          console.log(chalk.white(`   ${entraApp.ssoUrl}\n`));
+          
+          console.log(chalk.yellow('   Issuer (Entity ID):'));
+          console.log(chalk.white(`   ${entraApp.entityId}\n`));
+          
+          console.log(chalk.yellow('   Certificate:'));
+          console.log(chalk.white(`   ${certificate}\n`));
+          
+          // Open GitHub SAML configuration page
+          const githubSamlUrl = `https://github.com/enterprises/${config.enterprise}/settings/saml_provider/edit`;
+          console.log(chalk.cyan('🌐 Opening GitHub Enterprise SAML configuration page...'));
+          
+          try {
+            await open(githubSamlUrl);
+            console.log(chalk.green('✅ Browser opened to GitHub SAML settings'));
+          } catch (openError) {
+            console.log(chalk.yellow('⚠️  Could not auto-open browser'));
+            console.log(chalk.gray(`   Please manually visit: ${githubSamlUrl}`));
+          }
+          
+          console.log(chalk.cyan('\n📝 Next Steps:'));
+          console.log(chalk.gray('1. In the opened GitHub page, click "Enable SAML authentication"'));
+          console.log(chalk.gray('2. Enter the Sign-On URL, Issuer, and Certificate from above'));
+          console.log(chalk.gray('3. Test the SAML connection'));
+          console.log(chalk.gray('4. Enable "Require SAML SSO authentication" when ready'));
+          console.log(chalk.gray('5. Configure user provisioning in Entra ID if needed\n'));
+          
+        } catch (error: any) {
+          console.log(chalk.red(`❌ Setup failed: ${error.message}`));
+          console.log(chalk.yellow('\n💡 Manual Setup Instructions:'));
+          console.log(chalk.gray('1. Go to Azure Portal > Enterprise Applications'));
+          console.log(chalk.gray('2. Click "New application" > "Create your own application"'));
+          console.log(chalk.gray(`3. Name it "${appConfig.displayName}"`));
+          console.log(chalk.gray('4. Select "Integrate any other application you don\'t find in the gallery"'));
+          console.log(chalk.gray('5. Go to "Single sign-on" > "SAML"'));
+          console.log(chalk.gray('6. Configure:'));
+          console.log(chalk.gray(`   - Identifier (Entity ID): ${appConfig.entityId}`));
+          console.log(chalk.gray(`   - Reply URL: ${appConfig.replyUrl}`));
+          console.log(chalk.gray(`   - Sign on URL: ${appConfig.signOnUrl}`));
+          console.log(chalk.gray('7. Download the certificate and copy the Login URL'));
+          console.log(chalk.gray('8. Configure in GitHub Enterprise SAML settings'));
         }
       }
 
-      // Run setup process
-      await runSetupProcess(config, options.dryRun);
-
     } catch (error: any) {
-      console.error(chalk.red(`\n❌ Setup failed: ${error.message}`));
+      console.error(chalk.red(`❌ Setup failed: ${error.message}`));
+      console.log(chalk.yellow('💡 Run: ghec-sso auth debug -e <enterprise> for troubleshooting'));
       process.exit(1);
     }
   });
-
-async function getSetupConfig(options: any) {
-  let enterprise = options.enterprise;
-  let tenant = options.tenant;
-
-  if (!enterprise || !tenant) {
-    console.log(chalk.cyan('📋 Setup Configuration\n'));
-    
-    const answers = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'enterprise',
-        message: 'GitHub Enterprise name:',
-        when: !enterprise,
-        validate: (input) => input.length > 0 || 'Enterprise name is required'
-      },
-      {
-        type: 'input',
-        name: 'tenant',
-        message: 'Entra ID tenant domain (e.g., company.onmicrosoft.com):',
-        when: !tenant,
-        validate: (input) => {
-          if (!input) return 'Tenant domain is required';
-          if (!input.includes('.')) return 'Please enter a valid domain';
-          return true;
-        }
-      }
-    ]);
-
-    enterprise = enterprise || answers.enterprise;
-    tenant = tenant || answers.tenant;
-  }
-
-  return { enterprise, tenant };
-}
-
-function showWarnings() {
-  console.log(chalk.yellow.bold('⚠️  Important Warnings:\n'));
-  console.log(chalk.yellow('• This will configure SSO for your entire GitHub Enterprise'));
-  console.log(chalk.yellow('• Ensure you have admin access to both GitHub and Entra ID'));
-  console.log(chalk.yellow('• Users will need to be provisioned through Entra ID after setup'));
-  console.log(chalk.yellow('• Make sure you have recovery access to your GitHub Enterprise\n'));
-}
-
-async function runSetupProcess(config: any, dryRun: boolean) {
-  const authService = new AuthService();
-  const configManager = new ConfigManager();
-  
-  // Save configuration
-  configManager.setCurrentEnterprise(config.enterprise, {
-    github: { enterpriseSlug: config.enterprise },
-    azure: { tenantDomain: config.tenant },
-    sso: { status: 'in-progress' }
-  });
-
-  console.log(chalk.cyan('\n🔐 Authentication\n'));
-  
-  // Authenticate with both services
-  const spinner = ora('Authenticating with GitHub...').start();
-  const githubToken = await authService.authenticateGitHub();
-  spinner.succeed('GitHub authentication successful');
-  
-  spinner.start('Authenticating with Azure...');
-  const azureCredential = await authService.authenticateAzure();
-  spinner.succeed('Azure authentication successful');
-
-  // Initialize services
-  const githubService = new GitHubService(githubToken);
-  const azureService = new AzureService(azureCredential, config.tenant);
-
-  console.log(chalk.cyan('\n✅ Validation\n'));
-  
-  // Validate prerequisites
-  spinner.start('Validating prerequisites...');
-  await validatePrerequisites(githubService, azureService, config);
-  spinner.succeed('Prerequisites validated');
-
-  if (dryRun) {
-    console.log(chalk.blue('\n🔍 Dry Run - Changes that would be made:\n'));
-    console.log('1. Create GitHub Enterprise Application in Entra ID');
-    console.log('2. Configure SAML settings in the Entra ID app');
-    console.log('3. Download SAML certificate from Entra ID');
-    console.log('4. Configure SAML SSO in GitHub Enterprise');
-    console.log('5. Test SSO configuration');
-    console.log(chalk.blue('\nNo changes were made (dry run mode)'));
-    return;
-  }
-
-  console.log(chalk.cyan('\n🔧 Configuration\n'));
-
-  // Step 1: Create Entra ID Enterprise App
-  spinner.start('Creating GitHub Enterprise Application in Entra ID...');
-  const entraApp = await azureService.createGitHubEnterpriseApp(config.enterprise);
-  spinner.succeed('Enterprise Application created');
-
-  // Step 2: Configure SAML
-  spinner.start('Configuring SAML settings...');
-  await azureService.configureSAMLSettings(entraApp.id, config.enterprise);
-  const certificate = await azureService.downloadSAMLCertificate(entraApp.id);
-  spinner.succeed('SAML settings configured');
-
-  // Step 3: Configure GitHub Enterprise
-  spinner.start('Configuring GitHub Enterprise SSO...');
-  await githubService.configureSAML(config.enterprise, {
-    ssoUrl: entraApp.ssoUrl,
-    entityId: entraApp.entityId,
-    certificate: certificate
-  });
-  spinner.succeed('GitHub Enterprise SSO configured');
-
-  // Step 4: Test SSO
-  spinner.start('Testing SSO configuration...');
-  const testResult = await githubService.testSSOConfiguration(config.enterprise);
-  if (testResult.success) {
-    spinner.succeed('SSO configuration test passed');
-  } else {
-    spinner.warn('SSO test had warnings - please verify manually');
-    console.log(chalk.yellow(`Test details: ${testResult.message}`));
-  }
-
-  // Update configuration status
-  configManager.updateEnterpriseConfig(config.enterprise, {
-    sso: { 
-      status: 'configured',
-      method: 'saml',
-      lastConfigured: new Date().toISOString()
-    }
-  });
-
-  console.log(chalk.green.bold('\n🎉 SSO Setup Complete!\n'));
-  console.log(chalk.green('Next steps:'));
-  console.log(chalk.green('1. Add users/groups to the Entra ID Enterprise Application'));
-  console.log(chalk.green('2. Configure SCIM provisioning (run: ghec-sso configure scim)'));
-  console.log(chalk.green('3. Set up teams and Copilot licensing'));
-  console.log(chalk.green('\nFor troubleshooting, run: ghec-sso validate\n'));
-}
