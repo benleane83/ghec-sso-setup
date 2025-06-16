@@ -10,8 +10,8 @@ const program = new Command();
 
 program
   .name('ghec-sso')
-  .description('CLI tool to automate GitHub Enterprise Cloud SSO setup with Entra ID')
-  .version('1.0.0');
+  .description('CLI tool to automate GitHub Enterprise Cloud SAML SSO setup with Entra ID')
+  .version('0.1.0');
 
 program
   .addCommand(setupCommand)

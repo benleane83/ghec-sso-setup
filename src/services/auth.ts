@@ -164,7 +164,6 @@ export class AuthService {
       
       // Test 4: Test a simple enterprise-related endpoint
       try {
-        // This might fail for trial enterprises, but we'll see what error we get
         const enterpriseTest = await octokit.request('GET /user/enterprises');
         console.log(chalk.gray(`   Enterprise access test: ${enterpriseTest.data.length} enterprises`));
       } catch (enterpriseError: any) {

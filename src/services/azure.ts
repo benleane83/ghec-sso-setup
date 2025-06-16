@@ -352,5 +352,414 @@ export class AzureService {
       // Fallback: extract from tenant domain if available
       throw new Error(`Failed to get tenant ID: ${error.message}`);
     }
+  }  async assignCurrentUserToApp(servicePrincipalId: string): Promise<void> {
+    try {
+      console.log(chalk.gray('   Assigning current user to the application...'));
+      
+      // Get current user
+      const currentUser = await this.graphClient
+        .api('/me')
+        .select('id,displayName,userPrincipalName')
+        .get();
+      
+      console.log(chalk.gray(`   Current user: ${currentUser.displayName} (${currentUser.userPrincipalName})`));
+      
+      // Get the service principal with app roles to find Enterprise Owner role
+      const servicePrincipal = await this.graphClient
+        .api(`/servicePrincipals/${servicePrincipalId}`)
+        .select('appRoles,displayName')
+        .get();
+      
+      console.log(chalk.gray(`   Looking for Enterprise Owner role in ${servicePrincipal.displayName}...`));
+      
+      // Find the Enterprise Owner role
+      let enterpriseOwnerRole = null;
+      
+      if (servicePrincipal.appRoles && servicePrincipal.appRoles.length > 0) {
+        console.log(chalk.gray('   Available roles:'));
+        
+        // Look for Enterprise Owner role (common names it might have)
+        const ownerRolePatterns = [
+          'Enterprise Owner',
+          'EnterpriseOwner'
+        ];
+        
+        for (const role of servicePrincipal.appRoles) {
+          console.log(chalk.gray(`     - ${role.displayName || role.value || 'Unnamed role'} (${role.id})`));
+          
+          // Check if this role matches Enterprise Owner patterns
+          for (const pattern of ownerRolePatterns) {
+            if (role.displayName?.includes(pattern) || role.value?.includes(pattern)) {
+              enterpriseOwnerRole = role;
+              console.log(chalk.green(`     ✅ Found Enterprise Owner role: ${role.displayName || role.value}`));
+              break;
+            }
+          }
+          
+          if (enterpriseOwnerRole) break;
+        }
+      }
+      
+      // If we didn't find a specific Enterprise Owner role, use the first available role or default
+      if (!enterpriseOwnerRole) {
+        if (servicePrincipal.appRoles && servicePrincipal.appRoles.length > 0) {
+          enterpriseOwnerRole = servicePrincipal.appRoles[0];
+          console.log(chalk.yellow(`   ⚠️  Enterprise Owner role not found, using: ${enterpriseOwnerRole.displayName || enterpriseOwnerRole.value || 'First available role'}`));
+        } else {
+          console.log(chalk.yellow('   ⚠️  No app roles found, using default role'));
+          enterpriseOwnerRole = { id: '00000000-0000-0000-0000-000000000000' }; // Default role
+        }
+      }
+      
+      // Check if user is already assigned
+      try {
+        const existingAssignments = await this.graphClient
+          .api(`/servicePrincipals/${servicePrincipalId}/appRoleAssignedTo`)
+          .filter(`principalId eq ${currentUser.id}`)
+          .get();
+        
+        if (existingAssignments.value && existingAssignments.value.length > 0) {
+          console.log(chalk.green('   ✅ User already assigned to application'));
+          return;
+        }
+      } catch (checkError) {
+        console.log(chalk.gray('   Could not check existing assignments, proceeding with assignment...'));
+      }
+
+      try {
+        // Assign the user to the application with the Enterprise Owner role
+        await this.graphClient
+          .api(`/users/${currentUser.id}/appRoleAssignments`)
+          .post({
+            principalId: currentUser.id,
+            resourceId: servicePrincipalId,
+            appRoleId: enterpriseOwnerRole.id
+          });
+        
+        console.log(chalk.green(`   ✅ Current user assigned with role: ${enterpriseOwnerRole.displayName || enterpriseOwnerRole.value || 'Default'}`));
+        
+      } catch (assignmentError: any) {
+        // If direct assignment fails, try enabling assignment requirement
+        console.log(chalk.gray('   Standard assignment failed, trying alternative approach...'));
+        
+        try {
+          // Update the service principal to allow user assignment
+          await this.graphClient
+            .api(`/servicePrincipals/${servicePrincipalId}`)
+            .patch({
+              appRoleAssignmentRequired: false // Allow all users in the tenant
+            });
+          
+          console.log(chalk.green('   ✅ Application configured to allow all tenant users'));
+            } catch (configError: any) {
+          throw new Error(`Failed to configure user access: ${configError.message}`);
+        }
+      }
+      
+    } catch (error: any) {
+      console.log(chalk.yellow(`   ⚠️  Failed to assign user: ${error.message}`));
+      console.log(chalk.gray('   Note: You may need to manually assign users in Azure Portal'));
+      // Don't throw error as this is not critical for SAML setup
+    }
+  }
+
+  async configureProvisioning(servicePrincipalId: string, enterpriseName: string): Promise<void> {
+    try {
+      console.log(chalk.gray('   Configuring user provisioning...'));
+      
+      // Note: GitHub Enterprise requires SAML SSO to be enabled first before provisioning can be configured
+      // This sets up the provisioning configuration but won't be active until SAML is working
+      
+      // Enable synchronization
+      const provisioningConfig = {
+        synchronization: {
+          settings: [
+            {
+              name: 'AzureADEndpoint',
+              value: `https://graph.microsoft.com/v1.0/servicePrincipals/${servicePrincipalId}`
+            },
+            {
+              name: 'ApplicationId',
+              value: servicePrincipalId
+            }
+          ]
+        }
+      };
+      
+      // Check if GitHub has provisioning capabilities
+      const servicePrincipal = await this.graphClient
+        .api(`/servicePrincipals/${servicePrincipalId}`)
+        .select('synchronization')
+        .get();
+      
+      if (servicePrincipal.synchronization) {
+        console.log(chalk.green('   ✅ Provisioning capabilities detected'));
+        
+        // Set up provisioning job (this might not be available for all templates)
+        try {
+          const provisioningJobs = await this.graphClient
+            .api(`/servicePrincipals/${servicePrincipalId}/synchronization/jobs`)
+            .get();
+          
+          if (provisioningJobs.value && provisioningJobs.value.length > 0) {
+            console.log(chalk.green('   ✅ Provisioning job already exists'));
+          } else {
+            console.log(chalk.yellow('   ⚠️  No provisioning jobs found - may need manual setup'));
+          }
+        } catch (jobError: any) {
+          console.log(chalk.yellow(`   ⚠️  Could not check provisioning jobs: ${jobError.message}`));
+        }
+      } else {
+        console.log(chalk.yellow('   ⚠️  No synchronization capabilities found'));
+      }
+      
+      console.log(chalk.cyan('\n   📝 Provisioning Notes:'));
+      console.log(chalk.gray('   • User provisioning requires SAML SSO to be enabled in GitHub first'));
+      console.log(chalk.gray('   • After GitHub SAML setup is complete, return to Azure AD:'));
+      console.log(chalk.gray('     1. Go to Enterprise Applications > Your GitHub App'));
+      console.log(chalk.gray('     2. Click "Provisioning" in the left menu'));
+      console.log(chalk.gray('     3. Set Provisioning Mode to "Automatic"'));
+      console.log(chalk.gray('     4. Configure the GitHub SCIM endpoint and token'));
+      console.log(chalk.gray('     5. Test the connection and start provisioning'));
+      
+    } catch (error: any) {
+      console.log(chalk.yellow(`   ⚠️  Provisioning setup failed: ${error.message}`));
+      // Don't throw error as this is not critical for initial SAML setup
+    }
+  }
+
+  async addProvisioningNotes(enterpriseName: string): Promise<void> {
+    console.log(chalk.cyan('\n🔄 User Provisioning Setup:'));
+    console.log(chalk.gray('User provisioning allows automatic user/group sync between Azure AD and GitHub.'));
+    console.log(chalk.gray('This requires additional setup after SAML SSO is working:\n'));
+    
+    console.log(chalk.yellow('Prerequisites:'));
+    console.log(chalk.gray('• SAML SSO must be enabled and working in GitHub Enterprise'));
+    console.log(chalk.gray('• GitHub Enterprise must support SCIM provisioning'));
+    console.log(chalk.gray('• You need GitHub Enterprise Owner permissions\n'));
+    
+    console.log(chalk.yellow('Setup Steps:'));
+    console.log(chalk.gray('1. Complete GitHub SAML SSO setup first'));
+    console.log(chalk.gray('2. In GitHub Enterprise, go to Settings > Security > SAML SSO'));
+    console.log(chalk.gray('3. Enable "Require SAML SSO authentication for all members"'));
+    console.log(chalk.gray('4. Go to Settings > Security > Team synchronization'));
+    console.log(chalk.gray('5. Enable team synchronization and get the SCIM endpoint URL'));
+    console.log(chalk.gray('6. Generate a SCIM token in GitHub'));
+    console.log(chalk.gray('7. Return to Azure AD > Enterprise Applications > Your GitHub App'));
+    console.log(chalk.gray('8. Configure provisioning with the SCIM endpoint and token\n'));
+  }
+
+  async configureSCIMProvisioning(servicePrincipalId: string, scimEndpoint: string, scimToken: string): Promise<void> {
+    try {
+      console.log(chalk.gray('   Configuring SCIM provisioning settings...'));
+      
+      // Configure the provisioning settings
+      const provisioningConfig = {
+        provisioningEnabled: true,
+        mappings: [
+          {
+            name: "Microsoft Azure Active Directory to GitHub Enterprise Managed User",
+            sourceObjectName: "User",
+            targetObjectName: "User",
+            mappingBehavior: 0, // Create/Update/Delete
+            enabled: true,
+            targetAttributeMappings: [
+              {
+                source: { name: "userPrincipalName", type: "Attribute" },
+                target: { name: "userName", type: "Attribute" },
+                matchingPriority: 1,
+                defaultValue: null,
+                expressionLanguage: null
+              },
+              {
+                source: { name: "displayName", type: "Attribute" },
+                target: { name: "displayName", type: "Attribute" },
+                defaultValue: null
+              },
+              {
+                source: { name: "givenName", type: "Attribute" },
+                target: { name: "name.givenName", type: "Attribute" },
+                defaultValue: null
+              },
+              {
+                source: { name: "surname", type: "Attribute" },
+                target: { name: "name.familyName", type: "Attribute" },
+                defaultValue: null
+              },
+              {
+                source: { name: "mail", type: "Attribute" },
+                target: { name: "emails[type eq \"work\"].value", type: "Attribute" },
+                defaultValue: null
+              }
+            ]
+          }
+        ]
+      };
+
+      // Set the SCIM endpoint and authentication
+      await this.graphClient
+        .api(`/servicePrincipals/${servicePrincipalId}/synchronization/secrets`)
+        .put({
+          value: [
+            {
+              key: "BaseAddress",
+              value: scimEndpoint
+            },
+            {
+              key: "SecretToken", 
+              value: scimToken
+            }
+          ]
+        });      console.log(chalk.green('   ✅ SCIM endpoint and token configured'));
+
+      // Get available synchronization templates for this service principal
+      const templates = await this.graphClient
+        .api(`/servicePrincipals/${servicePrincipalId}/synchronization/templates`)
+        .get();
+
+      let templateId = null;
+      if (templates.value && templates.value.length > 0) {
+        // Use the first available template (GitHub Enterprise should have one)
+        templateId = templates.value[0].id;
+        console.log(chalk.gray(`   Using synchronization template: ${templateId}`));
+      } else {
+        throw new Error('No synchronization templates found for this application');
+      }
+
+      // Check if a job already exists
+      const existingJobs = await this.graphClient
+        .api(`/servicePrincipals/${servicePrincipalId}/synchronization/jobs`)
+        .get();
+
+      if (existingJobs.value && existingJobs.value.length > 0) {
+        console.log(chalk.green('   ✅ SCIM provisioning job already exists'));
+        
+        // Update existing job to ensure it's configured correctly
+        const jobId = existingJobs.value[0].id;
+        await this.graphClient
+          .api(`/servicePrincipals/${servicePrincipalId}/synchronization/jobs/${jobId}`)
+          .patch({
+            schedule: {
+              expiration: null,
+              interval: "PT1H", // Every hour
+              state: "Active"
+            }
+          });
+        console.log(chalk.green('   ✅ SCIM provisioning job updated'));
+      } else {
+        // Create new synchronization job
+        await this.graphClient
+          .api(`/servicePrincipals/${servicePrincipalId}/synchronization/jobs`)
+          .post({
+            templateId: templateId
+          });
+        console.log(chalk.green('   ✅ SCIM provisioning job created'));
+      }
+      
+    } catch (error: any) {
+      throw new Error(`Failed to configure SCIM provisioning: ${error.message}`);
+    }
+  }
+  async testSCIMConnection(servicePrincipalId: string): Promise<boolean> {
+    try {
+      console.log(chalk.gray('   Testing SCIM connection...'));
+      
+      // First, get the synchronization job to find the template ID
+      const jobs = await this.graphClient
+        .api(`/servicePrincipals/${servicePrincipalId}/synchronization/jobs`)
+        .get();
+      
+      if (!jobs.value || jobs.value.length === 0) {
+        throw new Error('No synchronization jobs found');
+      }
+      
+      const syncJob = jobs.value[0];
+      const templateId = syncJob.templateId;
+      
+      if (!templateId) {
+        throw new Error('Template ID not found in synchronization job');
+      }
+      
+      console.log(chalk.gray(`   Using template ID: ${templateId}`));
+        // Test the provisioning connection with saved credentials
+      await this.graphClient
+        .api(`/servicePrincipals/${servicePrincipalId}/synchronization/jobs/${syncJob.id}/validateCredentials`)
+        .post({
+          templateId: templateId,
+          useSavedCredentials: true
+        });
+        
+      console.log(chalk.green('   ✅ SCIM connection test successful'));
+      return true;
+    } catch (error: any) {
+      console.log(chalk.yellow(`   ⚠️  SCIM connection test failed: ${error.message}`));
+      return false;
+    }
+  }
+
+  async enableProvisioningOnDemand(servicePrincipalId: string): Promise<void> {
+    try {
+      console.log(chalk.gray('   Enabling on-demand provisioning...'));
+      
+      await this.graphClient
+        .api(`/servicePrincipals/${servicePrincipalId}`)
+        .patch({
+          preferredSingleSignOnMode: "saml",
+          tags: ["WindowsAzureActiveDirectoryOnPremApp", "ProvisioningOnDemand"]
+        });
+        
+      console.log(chalk.green('   ✅ On-demand provisioning enabled'));
+    } catch (error: any) {
+      console.log(chalk.yellow(`   ⚠️  Could not enable on-demand provisioning: ${error.message}`));
+    }
+  }
+
+  async startProvisioning(servicePrincipalId: string): Promise<void> {
+    try {
+      console.log(chalk.gray('   Starting provisioning job...'));
+      
+      // Get the synchronization job ID
+      const syncJobs = await this.graphClient
+        .api(`/servicePrincipals/${servicePrincipalId}/synchronization/jobs`)
+        .get();
+
+      if (!syncJobs.value || syncJobs.value.length === 0) {
+        throw new Error('No synchronization jobs found. Please create SCIM configuration first.');
+      }
+
+      const jobId = syncJobs.value[0].id;
+      
+      // Start the synchronization job
+      await this.graphClient
+        .api(`/servicePrincipals/${servicePrincipalId}/synchronization/jobs/${jobId}/start`)
+        .post({});
+
+      console.log(chalk.green('   ✅ Provisioning started successfully'));
+      console.log(chalk.gray('   Initial synchronization may take several minutes to complete'));
+      
+    } catch (error: any) {
+      throw new Error(`Failed to start provisioning: ${error.message}`);
+    }
+  }
+
+  async getProvisioningStatus(servicePrincipalId: string): Promise<any> {
+    try {
+      const syncJobs = await this.graphClient
+        .api(`/servicePrincipals/${servicePrincipalId}/synchronization/jobs`)
+        .get();
+
+      if (!syncJobs.value || syncJobs.value.length === 0) {
+        return { status: 'Not configured' };
+      }
+
+      const job = syncJobs.value[0];
+      return {
+        status: job.schedule?.state || 'Unknown',
+        lastExecution: job.schedule?.expiration,
+        jobId: job.id
+      };
+    } catch (error: any) {
+      throw new Error(`Failed to get provisioning status: ${error.message}`);
+    }
   }
 }

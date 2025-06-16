@@ -36,7 +36,7 @@ export class GitHubService {
         // Continue to other approaches if direct access fails
       }
 
-      // Approach 2: Try enterprise organizations (works for trial enterprises)
+      // Approach 2: Try enterprise organizations
       try {
         const { data: orgs } = await this.octokit.request('GET /enterprises/{enterprise}/organizations', {
           enterprise: enterpriseSlug,
@@ -69,8 +69,6 @@ export class GitHubService {
         1. The enterprise name is incorrect
         2. You don't have Enterprise Owner permissions
         3. You're authenticated with the wrong account
-        4. The enterprise is a trial that hasn't been fully activated
-        5. There are API limitations for trial enterprises
         
         Try running: ghec-sso auth debug -e ${enterpriseSlug}`
       };
@@ -84,10 +82,10 @@ export class GitHubService {
   }
   async validateEnterpriseAccessWithFallback(enterpriseSlug: string, force: boolean = false): Promise<{ success: boolean; message: string }> {
     if (force) {
-      console.log(chalk.yellow('⚠️  Forcing enterprise validation bypass (trial enterprise mode)'));
+      console.log(chalk.yellow('⚠️  Forcing enterprise validation bypass'));
       return {
         success: true,
-        message: `Enterprise validation bypassed for trial enterprise: ${enterpriseSlug}`
+        message: `Enterprise validation bypassed for enterprise: ${enterpriseSlug}`
       };
     }
     

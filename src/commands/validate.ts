@@ -32,10 +32,10 @@ export const validateCommand = new Command('validate')
       const authService = new AuthService();
       const spinner = ora('Authenticating...').start();
       
-      const githubToken = await authService.authenticateGitHub();
+    //   const githubToken = await authService.authenticateGitHub();
       const azureCredential = await authService.authenticateAzure();
       
-      const githubService = new GitHubService(githubToken);
+    //   const githubService = new GitHubService(githubToken);
       const azureService = new AzureService(azureCredential, config.azure.tenantDomain);
       
       spinner.succeed('Authentication successful');
@@ -43,7 +43,7 @@ export const validateCommand = new Command('validate')
       // Validation checks
       console.log(chalk.cyan('\n🔧 Running Validation Checks\n'));
 
-      const results = await runValidationChecks(githubService, azureService, config);
+      const results = await runValidationChecks(azureService, config);
       
       // Display results
       displayValidationResults(results);
@@ -60,16 +60,16 @@ export const validateCommand = new Command('validate')
     }
   });
 
-async function runValidationChecks(githubService: any, azureService: any, config: any) {
+async function runValidationChecks(azureService: any, config: any) {
   const checks = [
-    {
-      name: 'GitHub Enterprise Access',
-      test: () => githubService.validateEnterpriseAccess(config.github.enterpriseSlug)
-    },
-    {
-      name: 'GitHub SSO Configuration',
-      test: () => githubService.validateSSOConfig(config.github.enterpriseSlug)
-    },
+    // {
+    //   name: 'GitHub Enterprise Access',
+    //   test: () => githubService.validateEnterpriseAccess(config.github.enterpriseSlug)
+    // },
+    // {
+    //   name: 'GitHub SSO Configuration',
+    //   test: () => githubService.validateSSOConfig(config.github.enterpriseSlug)
+    // },
     {
       name: 'Entra ID Application',
       test: () => azureService.validateEnterpriseApp()
