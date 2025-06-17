@@ -4,6 +4,7 @@ import { AuthService } from '../services/auth';
 // import { GitHubService } from '../services/github';
 import { AzureService } from '../services/azure';
 import { ConfigManager } from '../utils/config';
+import { TemplateProcessor } from '../utils/template';
 import open from 'open';
 
 interface EntraAppConfig {
@@ -14,10 +15,11 @@ interface EntraAppConfig {
 }
 
 export const setupCommand = new Command('setup')
-  .description('Setup GitHub Enterprise Cloud SSO with Entra ID')
-  .option('-e, --enterprise <name>', 'GitHub Enterprise slug (e.g. for github.com/enterprises/my-company, use my-company)')
+  .description('Setup GitHub Enterprise Cloud SSO with Entra ID')  
+  .option('-e, --enterprise <n>', 'GitHub Enterprise slug (e.g. for github.com/enterprises/my-company, use my-company)')
   .option('-d, --domain [domain]', 'Your organizations Entra domain (optional - e.g. company.onmicrosoft.com)')
-  .option('--dry-run', 'Show what would be done without making changes')
+  .option('--plan', 'Generate a comprehensive HTML setup plan without making changes')
+  .option('--plan-output [path]', 'Custom output path for the setup plan (only with --plan)')
   .option('--force', 'Force setup even if validation fails')
   .action(async (options) => {
     console.log(chalk.blue.bold('🚀 GitHub Enterprise Cloud SSO Setup\n'));
@@ -52,12 +54,10 @@ export const setupCommand = new Command('setup')
         ]);
 
         config = { ...config, ...missing };
-      }
-
-      console.log(chalk.cyan(`📋 Configuration:`));
+      }      console.log(chalk.cyan(`📋 Configuration:`));
       console.log(chalk.gray(`   Enterprise: ${config.enterprise}`));
-      console.log(chalk.gray(`   Domain: ${config.domain || 'common (any tenant)'}`));
-      console.log(chalk.gray(`   Mode: ${options.dryRun ? 'DRY RUN' : 'LIVE'}\n`));
+      console.log(chalk.gray(`   Domain: ${config.domain || 'common (default tenant)'}`));
+      console.log(chalk.gray(`   Mode: ${options.plan ? 'PLAN' : 'LIVE'}\n`));
 
     //   // Initialize services
     //   const githubService = new GitHubService(githubToken);
@@ -96,17 +96,76 @@ export const setupCommand = new Command('setup')
         signOnUrl: `https://github.com/enterprises/${config.enterprise}/sso`,
         entityId: `https://github.com/enterprises/${config.enterprise}`,
         replyUrl: `https://github.com/enterprises/${config.enterprise}/saml/consume`
-      };
+      };      if (options.plan) {
+        console.log(chalk.blue.bold('📋 Generating Comprehensive Setup Plan...\n'));
+        
+        const templateProcessor = new TemplateProcessor();
+          try {
+          let planPath: string;
+          
+          if (options.planOutput) {
+            // Use custom output path
+            planPath = await templateProcessor.generateHtmlSetupPlan(
+              config.enterprise, 
+              config.domain || 'common', 
+              options.planOutput
+            );
+          } else {
+            // Generate to desktop with default filename
+            planPath = await templateProcessor.generateHtmlSetupPlanToDesktop(
+              config.enterprise, 
+              config.domain || 'common'
+            );
+          }
+          
+          console.log(chalk.green.bold('🎉 Setup Plan Generated Successfully!\n'));
+          console.log(chalk.cyan('📄 Plan Details:'));
+          console.log(chalk.gray(`   Enterprise: ${config.enterprise}`));
+          console.log(chalk.gray(`   Domain: ${config.domain || 'common (default tenant)'}`));
+          console.log(chalk.gray(`   Format: HTML`));
+          console.log(chalk.gray(`   File: ${planPath}\n`));
+          
+          console.log(chalk.yellow('📋 The plan includes:'));
+          console.log(chalk.gray('   • Step-by-step Entra ID application setup'));
+          console.log(chalk.gray('   • Exact URLs and configuration values'));
+          console.log(chalk.gray('   • GitHub Enterprise SAML configuration'));
+          console.log(chalk.gray('   • Optional SCIM provisioning setup'));
+          console.log(chalk.gray('   • Verification checklist'));
+          console.log(chalk.gray('   • Troubleshooting guide\n'));
 
-      if (options.dryRun) {        console.log(chalk.yellow('🧪 DRY RUN: Would create Entra ID app with:'));
-        console.log(chalk.gray(`   Display Name: ${appConfig.displayName}`));
-        console.log(chalk.gray(`   Sign-On URL: ${appConfig.signOnUrl}`));
-        console.log(chalk.gray(`   Entity ID: ${appConfig.entityId}`));
-        console.log(chalk.gray(`   Reply URL: ${appConfig.replyUrl}`));
-        console.log(chalk.gray(`   User Assignment: Current user would be assigned`));
-        console.log(chalk.gray(`   SCIM Endpoint: https://api.github.com/scim/v2/enterprises/${config.enterprise}/`));
-        console.log(chalk.gray(`   Interactive SCIM setup: Would prompt for GitHub SCIM token after SAML setup`));
-        console.log(chalk.gray(`   Auto-provisioning: Would offer to start provisioning with confirmation prompt\n`));
+          // Ask if user wants to open the file
+          const inquirer = await import('inquirer');
+          const { openFile } = await inquirer.default.prompt([{
+            type: 'confirm',
+            name: 'openFile',
+            message: 'Would you like to open the setup plan now?',
+            default: true
+          }]);
+          
+          if (openFile) {
+            try {
+              await open(planPath);
+              console.log(chalk.green('✅ Setup plan opened in your default application'));
+            } catch (openError) {
+              console.log(chalk.yellow('⚠️  Could not auto-open file'));
+              console.log(chalk.gray(`   Please manually open: ${planPath}`));
+            }
+          }
+            console.log(chalk.cyan('\n💡 Next Steps:'));
+          console.log(chalk.gray('1. Follow the generated plan step-by-step'));
+          console.log(chalk.gray('2. Test your SAML configuration thoroughly'));
+          console.log(chalk.gray('3. Run this command without --plan for automated setup'));
+          console.log(chalk.gray('4. Save the plan for future reference or team sharing\n'));
+          
+        } catch (error: any) {
+          console.log(chalk.red(`❌ Failed to generate setup plan: ${error.message}`));
+          console.log(chalk.yellow('\n📋 Fallback: Basic Configuration Summary'));
+          console.log(chalk.gray(`   Display Name: ${appConfig.displayName}`));
+          console.log(chalk.gray(`   Sign-On URL: ${appConfig.signOnUrl}`));
+          console.log(chalk.gray(`   Entity ID: ${appConfig.entityId}`));
+          console.log(chalk.gray(`   Reply URL: ${appConfig.replyUrl}`));
+          console.log(chalk.gray(`   SCIM Endpoint: https://api.github.com/scim/v2/enterprises/${config.enterprise}/\n`));
+        }
       } else {
         try {
           const entraApp = await azureService!.createGitHubEnterpriseApp(config.enterprise);
@@ -199,14 +258,34 @@ export const setupCommand = new Command('setup')
 
               try {
                 console.log(chalk.cyan('\n🔧 Configuring SCIM provisioning in Entra ID...'));
-                
-                await azureService!.configureSCIMProvisioning(
+                  await azureService!.configureSCIMProvisioning(
                   entraApp.id, 
                   scimEndpoint,  // Use auto-generated endpoint
                   scimConfig.scimToken
                 );
                 
                 console.log(chalk.green('✅ SCIM provisioning configured successfully'));
+                
+                // Verify the service principal still exists after SCIM configuration
+                try {
+                  console.log(chalk.gray('   Verifying service principal after SCIM setup...'));
+                  const diagnostic = await azureService!.diagnoseSCIMIssues(entraApp.id, config.enterprise);
+                  if (!diagnostic.exists) {
+                    console.log(chalk.red('\n❌ Service Principal was deleted during SCIM setup!'));
+                    console.log(chalk.yellow('Diagnostic recommendations:'));
+                    diagnostic.recommendations.forEach(rec => {
+                      console.log(chalk.gray(`• ${rec}`));
+                    });
+                    console.log(chalk.cyan('\n💡 This indicates an issue with the SCIM configuration that caused Azure to remove the Enterprise Application.'));
+                    console.log(chalk.gray('You may need to:'));
+                    console.log(chalk.gray('1. Verify your GitHub SCIM token is valid and has correct permissions'));
+                    console.log(chalk.gray('2. Check that your GitHub Enterprise supports SCIM provisioning'));
+                    console.log(chalk.gray('3. Try running the setup again without SCIM provisioning'));
+                    throw new Error('Service Principal was deleted during SCIM configuration');
+                  }
+                } catch (diagnosticError: any) {
+                  console.log(chalk.yellow(`⚠️  Could not verify service principal: ${diagnosticError.message}`));
+                }
                 
                 // Test the SCIM connection
                 const connectionTest = await azureService!.testSCIMConnection(entraApp.id);

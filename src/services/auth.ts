@@ -96,7 +96,7 @@ export class AuthService {
     
     console.log(chalk.gray(tenantDomain ? 
       `   Authenticating to tenant: ${tenantId}` : 
-      '   Authenticating to any tenant (common)'
+      '   Authenticating to default tenant (common)'
     ));
     
     const credential = new DeviceCodeCredential({

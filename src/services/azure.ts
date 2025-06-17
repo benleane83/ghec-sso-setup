@@ -774,55 +774,23 @@ export class AzureService {
     console.log(chalk.gray('7. Return to Azure AD > Enterprise Applications > Your GitHub App'));
     console.log(chalk.gray('8. Configure provisioning with the SCIM endpoint and token\n'));
   }
-
   async configureSCIMProvisioning(servicePrincipalId: string, scimEndpoint: string, scimToken: string): Promise<void> {
     try {
       console.log(chalk.gray('   Configuring SCIM provisioning settings...'));
       
-      // Configure the provisioning settings
-      const provisioningConfig = {
-        provisioningEnabled: true,
-        mappings: [
-          {
-            name: "Microsoft Azure Active Directory to GitHub Enterprise Managed User",
-            sourceObjectName: "User",
-            targetObjectName: "User",
-            mappingBehavior: 0, // Create/Update/Delete
-            enabled: true,
-            targetAttributeMappings: [
-              {
-                source: { name: "userPrincipalName", type: "Attribute" },
-                target: { name: "userName", type: "Attribute" },
-                matchingPriority: 1,
-                defaultValue: null,
-                expressionLanguage: null
-              },
-              {
-                source: { name: "displayName", type: "Attribute" },
-                target: { name: "displayName", type: "Attribute" },
-                defaultValue: null
-              },
-              {
-                source: { name: "givenName", type: "Attribute" },
-                target: { name: "name.givenName", type: "Attribute" },
-                defaultValue: null
-              },
-              {
-                source: { name: "surname", type: "Attribute" },
-                target: { name: "name.familyName", type: "Attribute" },
-                defaultValue: null
-              },
-              {
-                source: { name: "mail", type: "Attribute" },
-                target: { name: "emails[type eq \"work\"].value", type: "Attribute" },
-                defaultValue: null
-              }
-            ]
-          }
-        ]
-      };
+      // First, verify the service principal still exists before making changes
+      try {
+        await this.graphClient
+          .api(`/servicePrincipals/${servicePrincipalId}`)
+          .select('id,displayName')
+          .get();
+        console.log(chalk.gray('   ✅ Service principal verified before SCIM configuration'));
+      } catch (verifyError: any) {
+        throw new Error(`Service principal not found before SCIM configuration: ${verifyError.message}`);
+      }
 
-      // Set the SCIM endpoint and authentication
+      // Set the SCIM endpoint and authentication FIRST (before creating jobs)
+      console.log(chalk.gray('   Setting SCIM endpoint and authentication...'));
       await this.graphClient
         .api(`/servicePrincipals/${servicePrincipalId}/synchronization/secrets`)
         .put({
@@ -836,23 +804,39 @@ export class AzureService {
               value: scimToken
             }
           ]
-        });      console.log(chalk.green('   ✅ SCIM endpoint and token configured'));
+        });      
+      console.log(chalk.green('   ✅ SCIM endpoint and token configured'));
+
+      // Verify service principal still exists after setting secrets
+      try {
+        await this.graphClient
+          .api(`/servicePrincipals/${servicePrincipalId}`)
+          .select('id,displayName')
+          .get();
+        console.log(chalk.gray('   ✅ Service principal verified after secrets configuration'));
+      } catch (verifyError: any) {
+        throw new Error(`Service principal was deleted after setting SCIM secrets: ${verifyError.message}`);
+      }
 
       // Get available synchronization templates for this service principal
+      console.log(chalk.gray('   Checking for synchronization templates...'));
       const templates = await this.graphClient
         .api(`/servicePrincipals/${servicePrincipalId}/synchronization/templates`)
         .get();
 
       let templateId = null;
       if (templates.value && templates.value.length > 0) {
-        // Use the first available template (GitHub Enterprise should have one)
-        templateId = templates.value[0].id;
+        // Use the first available template (GitHub Enterprise should have one)        templateId = templates.value[0].id;
         console.log(chalk.gray(`   Using synchronization template: ${templateId}`));
       } else {
-        throw new Error('No synchronization templates found for this application');
+        console.log(chalk.yellow('   ⚠️  No synchronization templates found - this may be expected for custom applications'));
+        console.log(chalk.gray('   SCIM endpoint configured, but automatic provisioning jobs cannot be created'));
+        console.log(chalk.gray('   You can manually configure provisioning in the Azure Portal if needed'));
+        return; // Exit gracefully without creating jobs
       }
 
       // Check if a job already exists
+      console.log(chalk.gray('   Checking for existing synchronization jobs...'));
       const existingJobs = await this.graphClient
         .api(`/servicePrincipals/${servicePrincipalId}/synchronization/jobs`)
         .get();
@@ -860,8 +844,19 @@ export class AzureService {
       if (existingJobs.value && existingJobs.value.length > 0) {
         console.log(chalk.green('   ✅ SCIM provisioning job already exists'));
         
+        // Verify service principal still exists before updating job
+        try {
+          await this.graphClient
+            .api(`/servicePrincipals/${servicePrincipalId}`)
+            .select('id,displayName')
+            .get();
+        } catch (verifyError: any) {
+          throw new Error(`Service principal was deleted during job configuration: ${verifyError.message}`);
+        }
+        
         // Update existing job to ensure it's configured correctly
         const jobId = existingJobs.value[0].id;
+        console.log(chalk.gray(`   Updating existing job: ${jobId}`));
         await this.graphClient
           .api(`/servicePrincipals/${servicePrincipalId}/synchronization/jobs/${jobId}`)
           .patch({
@@ -873,6 +868,18 @@ export class AzureService {
           });
         console.log(chalk.green('   ✅ SCIM provisioning job updated'));
       } else {
+        console.log(chalk.gray('   Creating new synchronization job...'));
+        
+        // Verify service principal still exists before creating job
+        try {
+          await this.graphClient
+            .api(`/servicePrincipals/${servicePrincipalId}`)
+            .select('id,displayName')
+            .get();
+        } catch (verifyError: any) {
+          throw new Error(`Service principal was deleted before creating job: ${verifyError.message}`);
+        }
+        
         // Create new synchronization job
         await this.graphClient
           .api(`/servicePrincipals/${servicePrincipalId}/synchronization/jobs`)
@@ -880,15 +887,36 @@ export class AzureService {
             templateId: templateId
           });
         console.log(chalk.green('   ✅ SCIM provisioning job created'));
+        
+        // Final verification that service principal still exists
+        try {
+          await this.graphClient
+            .api(`/servicePrincipals/${servicePrincipalId}`)
+            .select('id,displayName')
+            .get();
+          console.log(chalk.green('   ✅ Service principal verified after job creation'));
+        } catch (verifyError: any) {
+          throw new Error(`Service principal was deleted after creating synchronization job: ${verifyError.message}`);
+        }
       }
       
     } catch (error: any) {
       throw new Error(`Failed to configure SCIM provisioning: ${error.message}`);
     }
-  }
-  async testSCIMConnection(servicePrincipalId: string): Promise<boolean> {
+  }  async testSCIMConnection(servicePrincipalId: string): Promise<boolean> {
     try {
       console.log(chalk.gray('   Testing SCIM connection...'));
+      
+      // Verify the service principal exists before testing
+      try {
+        await this.graphClient
+          .api(`/servicePrincipals/${servicePrincipalId}`)
+          .select('id,displayName')
+          .get();
+      } catch (verifyError: any) {
+        console.log(chalk.yellow(`   ⚠️  Service principal not found before SCIM test: ${verifyError.message}`));
+        return false;
+      }
       
       // First, get the synchronization job to find the template ID
       const jobs = await this.graphClient
@@ -896,18 +924,21 @@ export class AzureService {
         .get();
       
       if (!jobs.value || jobs.value.length === 0) {
-        throw new Error('No synchronization jobs found');
+        console.log(chalk.yellow('   ⚠️  No synchronization jobs found - skipping connection test'));
+        return false;
       }
       
       const syncJob = jobs.value[0];
       const templateId = syncJob.templateId;
       
       if (!templateId) {
-        throw new Error('Template ID not found in synchronization job');
+        console.log(chalk.yellow('   ⚠️  Template ID not found in synchronization job - skipping connection test'));
+        return false;
       }
       
       console.log(chalk.gray(`   Using template ID: ${templateId}`));
-        // Test the provisioning connection with saved credentials
+        
+      // Test the provisioning connection with saved credentials
       await this.graphClient
         .api(`/servicePrincipals/${servicePrincipalId}/synchronization/jobs/${syncJob.id}/validateCredentials`)
         .post({
@@ -915,28 +946,60 @@ export class AzureService {
           useSavedCredentials: true
         });
         
-      console.log(chalk.green('   ✅ SCIM connection test successful'));
-      return true;
+      // Verify the service principal still exists after the test
+      try {
+        await this.graphClient
+          .api(`/servicePrincipals/${servicePrincipalId}`)
+          .select('id,displayName')
+          .get();
+        console.log(chalk.green('   ✅ SCIM connection test successful'));
+        return true;
+      } catch (verifyError: any) {
+        throw new Error(`Service principal was deleted during SCIM connection test: ${verifyError.message}`);
+      }
+        
     } catch (error: any) {
       console.log(chalk.yellow(`   ⚠️  SCIM connection test failed: ${error.message}`));
       return false;
     }
   }
-
   async enableProvisioningOnDemand(servicePrincipalId: string): Promise<void> {
     try {
       console.log(chalk.gray('   Enabling on-demand provisioning...'));
       
+      // Verify the service principal exists before making changes
+      try {
+        const servicePrincipal = await this.graphClient
+          .api(`/servicePrincipals/${servicePrincipalId}`)
+          .select('id,displayName,preferredSingleSignOnMode,tags')
+          .get();
+        console.log(chalk.gray(`   ✅ Service principal verified: ${servicePrincipal.displayName}`));
+      } catch (verifyError: any) {
+        throw new Error(`Service principal not found before enabling on-demand provisioning: ${verifyError.message}`);
+      }
+      
+      // Be more conservative with tags - only add what's necessary
       await this.graphClient
         .api(`/servicePrincipals/${servicePrincipalId}`)
         .patch({
           preferredSingleSignOnMode: "saml",
-          tags: ["WindowsAzureActiveDirectoryOnPremApp", "ProvisioningOnDemand"]
+          tags: ["WindowsAzureActiveDirectoryOnPremApp"] // Remove "ProvisioningOnDemand" as it might cause issues
         });
         
-      console.log(chalk.green('   ✅ On-demand provisioning enabled'));
+      // Verify the service principal still exists after the change
+      try {
+        await this.graphClient
+          .api(`/servicePrincipals/${servicePrincipalId}`)
+          .select('id,displayName')
+          .get();
+        console.log(chalk.green('   ✅ On-demand provisioning enabled safely'));
+      } catch (verifyError: any) {
+        throw new Error(`Service principal was deleted after enabling on-demand provisioning: ${verifyError.message}`);
+      }
+        
     } catch (error: any) {
       console.log(chalk.yellow(`   ⚠️  Could not enable on-demand provisioning: ${error.message}`));
+      // Don't throw error here - this is not critical for basic SCIM setup
     }
   }
 
@@ -1241,6 +1304,128 @@ export class AzureService {
       return {
         success: false,
         message: `Error validating certificates: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Diagnostic method to check if a service principal exists and get its current state
+   */
+  async diagnoseSCIMIssues(servicePrincipalId: string, enterpriseName: string): Promise<{ exists: boolean; details?: any; recommendations: string[] }> {
+    const recommendations: string[] = [];
+    
+    try {
+      // Check if service principal still exists
+      const servicePrincipal = await this.graphClient
+        .api(`/servicePrincipals/${servicePrincipalId}`)
+        .select('id,displayName,preferredSingleSignOnMode,tags,appId')
+        .get();
+      
+      console.log(chalk.green(`✅ Service Principal exists: ${servicePrincipal.displayName}`));
+      
+      // Check associated application
+      let application = null;
+      try {
+        const applications = await this.graphClient
+          .api('/applications')
+          .filter(`appId eq '${servicePrincipal.appId}'`)
+          .select('id,displayName,identifierUris,web')
+          .get();
+        
+        if (applications.value && applications.value.length > 0) {
+          application = applications.value[0];
+          console.log(chalk.green(`✅ Associated Application exists: ${application.displayName}`));
+        } else {
+          console.log(chalk.red(`❌ Associated Application not found for appId: ${servicePrincipal.appId}`));
+          recommendations.push('The Application Registration may have been deleted - this could cause the Service Principal to be removed');
+        }
+      } catch (appError: any) {
+        console.log(chalk.red(`❌ Error checking associated application: ${appError.message}`));
+        recommendations.push('Unable to verify associated Application Registration');
+      }
+      
+      // Check SCIM configuration
+      try {
+        const syncJobs = await this.graphClient
+          .api(`/servicePrincipals/${servicePrincipalId}/synchronization/jobs`)
+          .get();
+        
+        if (syncJobs.value && syncJobs.value.length > 0) {
+          console.log(chalk.green(`✅ SCIM Jobs found: ${syncJobs.value.length}`));
+          
+          // Check job status
+          syncJobs.value.forEach((job: any, index: number) => {
+            console.log(chalk.gray(`   Job ${index + 1}: ${job.templateId} - Status: ${job.schedule?.state || 'Unknown'}`));
+          });
+        } else {
+          console.log(chalk.yellow(`⚠️  No SCIM synchronization jobs found`));
+          recommendations.push('SCIM provisioning may not be properly configured');
+        }
+      } catch (scimError: any) {
+        console.log(chalk.yellow(`⚠️  Error checking SCIM jobs: ${scimError.message}`));
+        recommendations.push('Unable to verify SCIM configuration - this may indicate the service principal is in an invalid state');
+      }
+      
+      // Check for common issues
+      if (servicePrincipal.preferredSingleSignOnMode !== 'saml') {
+        recommendations.push(`SSO mode is '${servicePrincipal.preferredSingleSignOnMode}' instead of 'saml'`);
+      }
+      
+      // Check SAML configuration
+      if (application) {
+        const expectedEntityId = `https://github.com/enterprises/${enterpriseName}`;
+        const expectedReplyUrl = `https://github.com/enterprises/${enterpriseName}/saml/consume`;
+        
+        const hasCorrectEntityId = application.identifierUris?.includes(expectedEntityId);
+        const hasCorrectReplyUrl = application.web?.redirectUris?.includes(expectedReplyUrl);
+        
+        if (!hasCorrectEntityId) {
+          recommendations.push(`Entity ID configuration may be incorrect - expected: ${expectedEntityId}`);
+        }
+        if (!hasCorrectReplyUrl) {
+          recommendations.push(`Reply URL configuration may be incorrect - expected: ${expectedReplyUrl}`);
+        }
+      }
+      
+      return {
+        exists: true,
+        details: {
+          servicePrincipal,
+          application,
+          hasSCIMJobs: false // Will be updated if jobs are found
+        },
+        recommendations
+      };
+      
+    } catch (error: any) {
+      console.log(chalk.red(`❌ Service Principal not found: ${error.message}`));
+      
+      // Check if the application registration still exists
+      try {
+        const allApps = await this.graphClient
+          .api('/applications')
+          .filter(`displayName eq 'GitHub Enterprise SSO - ${enterpriseName}'`)
+          .select('id,displayName,appId')
+          .get();
+        
+        if (allApps.value && allApps.value.length > 0) {
+          console.log(chalk.yellow(`⚠️  Found Application Registration but no Service Principal`));
+          console.log(chalk.gray(`   App: ${allApps.value[0].displayName} (${allApps.value[0].appId})`));
+          recommendations.push('Application Registration exists but Service Principal was deleted');
+          recommendations.push('Try recreating the Service Principal for the existing Application');
+          recommendations.push('Or delete the Application Registration and run setup again');
+        } else {
+          console.log(chalk.red(`❌ No matching Application Registration found either`));
+          recommendations.push('Both Service Principal and Application Registration are missing');
+          recommendations.push('Run the setup command again to recreate the application');
+        }
+      } catch (appSearchError: any) {
+        recommendations.push('Unable to check for remaining Application Registrations');
+      }
+      
+      return {
+        exists: false,
+        recommendations
       };
     }
   }
