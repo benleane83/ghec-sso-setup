@@ -16,8 +16,44 @@ This tool automates the complex process described in [Microsoft's GitHub Enterpr
 
 ## Installation
 
+### Prerequisites
+- **Node.js 16 or higher** - [Download here](https://nodejs.org/)
+- **Git** (for GitHub installation method) - [Download here](https://git-scm.com/)
+
+### Method 1: Install from GitHub (Recommended)
 ```bash
-npm install -g ghec-sso-cli
+# Install directly from GitHub repository
+npm install -g git+https://github.com/benleane83/ghec-sso-setup.git
+```
+
+### Method 2: Clone and Install (Alternative)
+```bash
+# Clone the repository
+git clone https://github.com/benleane83/ghec-sso-setup.git
+cd ghec-sso-setup
+
+# Install dependencies and build
+npm install
+npm run build
+
+# Install globally
+npm install -g .
+```
+
+### Verify Installation
+```bash
+# Check if the tool is installed correctly
+ghec-sso --help
+
+# Check version
+ghec-sso --version
+```
+
+### Update the Tool
+```bash
+# To update to the latest version
+npm uninstall -g ghec-sso-cli
+npm install -g git+https://github.com/benleane83/ghec-sso-setup.git
 ```
 
 ## Quick Start
