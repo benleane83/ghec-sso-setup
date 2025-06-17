@@ -16,7 +16,7 @@ interface EntraAppConfig {
 export const setupCommand = new Command('setup')
   .description('Setup GitHub Enterprise Cloud SSO with Entra ID')
   .option('-e, --enterprise <name>', 'GitHub Enterprise slug (e.g. for github.com/enterprises/my-company, use my-company)')
-  .option('-d, --domain <domain>', 'Your organizations Entra domain (e.g. for company.onmicrosoft.com, use company)')
+  .option('-d, --domain [domain]', 'Your organizations Entra domain (optional - e.g. company.onmicrosoft.com)')
   .option('--dry-run', 'Show what would be done without making changes')
   .option('--force', 'Force setup even if validation fails')
   .action(async (options) => {
@@ -37,10 +37,8 @@ export const setupCommand = new Command('setup')
       let config = {
         enterprise: options.enterprise,
         domain: options.domain
-      };
-
-      // Prompt for missing configuration
-      if (!config.enterprise || !config.domain) {
+      };      // Prompt for missing configuration
+      if (!config.enterprise) {
         const inquirer = await import('inquirer');
         
         const missing = await inquirer.default.prompt([
@@ -50,13 +48,6 @@ export const setupCommand = new Command('setup')
             message: 'Enter your GitHub Enterprise name (e.g. for /enterprises/my-company, use my-company):',
             when: !config.enterprise,
             validate: (input: string) => input.length > 0 || 'Enterprise name is required'
-          },
-          {
-            type: 'input',
-            name: 'domain',
-            message: 'Enter your organizations Entra domain (e.g. for company.onmicrosoft.com, use company):',
-            when: !config.domain,
-            validate: (input: string) => input.length > 0 || 'Domain is required'
           }
         ]);
 
@@ -65,7 +56,7 @@ export const setupCommand = new Command('setup')
 
       console.log(chalk.cyan(`📋 Configuration:`));
       console.log(chalk.gray(`   Enterprise: ${config.enterprise}`));
-      console.log(chalk.gray(`   Domain: ${config.domain}`));
+      console.log(chalk.gray(`   Domain: ${config.domain || 'common (any tenant)'}`));
       console.log(chalk.gray(`   Mode: ${options.dryRun ? 'DRY RUN' : 'LIVE'}\n`));
 
     //   // Initialize services
@@ -85,12 +76,10 @@ export const setupCommand = new Command('setup')
     //   console.log(chalk.green(`✅ ${enterpriseValidation.message}\n`));
       
       // We'll initialize Azure service after we get Azure credentials
-      let azureService: AzureService | null = null;
-
-      // Step 2: Get Azure credentials
+      let azureService: AzureService | null = null;      // Step 2: Get Azure credentials
       console.log(chalk.cyan('🔍 Step 2: Getting Azure credentials...'));
       try {
-        const azureCredential = await authService.authenticateAzure();
+        const azureCredential = await authService.authenticateAzure(config.domain);
         azureService = new AzureService(azureCredential, config.domain);
         console.log(chalk.green('✅ Azure authentication validated\n'));
       } catch (error: any) {
@@ -294,8 +283,14 @@ export const setupCommand = new Command('setup')
           console.log(chalk.gray('Your GitHub Enterprise SAML SSO with Entra ID is now configured.'));
           console.log(chalk.gray('Users can sign in using their organizational credentials.\n'));
           console.log(chalk.gray('Please add additional Entra users or groups to your app as required.\n'));
+            } catch (error: any) {
+          // Check if this is a user cancellation - don't show fallback instructions
+          if (error.userCancelled) {
+            console.log(chalk.gray('\n⏸️  Setup cancelled by user.'));
+            console.log(chalk.gray('Run the command again when ready to proceed.'));
+            process.exit(0);
+          }
           
-        } catch (error: any) {
           console.log(chalk.red(`❌ Setup failed: ${error.message}`));
           console.log(chalk.yellow('\n💡 Manual Setup Instructions:'));
           console.log(chalk.gray('1. Go to Azure Portal > Enterprise Applications'));

@@ -13,9 +13,9 @@
     "test": "jest",
     "lint": "eslint src/**/*.ts",
     "prepare": "npm run build",   
-    "package": "npm run build && npm run build:bundle && pkg dist/bundle.js -t node18-win-x64,node18-macos-x64,node18-linux-x64 -o bin/ghec-sso-cli",
-    "package:win": "npm run build && npm run build:bundle && pkg dist/bundle.js -t node18-win-x64 -o bin/ghec-sso-cli.exe",
-    "package:all": "npm run build && npm run build:bundle && pkg dist/bundle.js -t node18-win-x64,node18-macos-x64,node18-linux-x64 -o bin/ghec-sso-cli"
+    "package": "npm run build && npm run build:bundle && pkg dist/bundle.js -t node18-win-x64,node18-macos-x64,node18-linux-x64 -o bin/ghec-sso",
+    "package:win": "npm run build && npm run build:bundle && pkg dist/bundle.js -t node18-win-x64 -o bin/ghec-sso.exe",
+    "package:all": "npm run build && npm run build:bundle && pkg dist/bundle.js -t node18-win-x64,node18-macos-x64,node18-linux-x64 -o bin/ghec-sso"
   },
   "engines": {
     "node": ">=16.0.0"

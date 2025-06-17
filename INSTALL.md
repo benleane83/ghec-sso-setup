@@ -51,14 +51,14 @@ ghec-sso --help
 ```bash
 # Download ghec-sso-cli.exe to your Desktop
 cd Desktop
-.\ghec-sso-cli.exe auth login-pat
-.\ghec-sso-cli.exe setup --enterprise mycompany --domain mycompany.com
+.\ghec-sso-cli.exe auth login
+.\ghec-sso-cli.exe setup --enterprise mycompany
 ```
 
 ### Using npm Installation:
 ```bash
 ghec-sso auth login
-ghec-sso setup --enterprise mycompany --domain mycompany.com
+ghec-sso setup --enterprise mycompany
 ```
 
 ## 🛟 Troubleshooting
@@ -102,10 +102,10 @@ npm install -g git+https://github.com/benleane83/ghec-sso-setup.git
 ```
 
 **Getting Help:**
-- Check authentication: `ghec-sso auth status` (or `.\ghec-sso-cli.exe auth status`)
-- Debug enterprise access: `ghec-sso auth debug -e YOUR-ENTERPRISE`
+- Check authentication: `ghec-sso auth status`
+- Debug enterprise access: `ghec-sso auth debug -e my-company`
 - View all commands: `ghec-sso --help`
-- Test dry run: `ghec-sso setup --dry-run -e YOUR-ENTERPRISE -d YOUR-DOMAIN.com`
+- Test dry run: `ghec-sso setup --dry-run -e my-company`
 
 ---
 

@@ -9,6 +9,7 @@ import { ConfigManager } from '../utils/config';
 export const validateCommand = new Command('validate')
   .description('Validate current SSO setup and configuration')
   .option('-e, --enterprise <name>', 'GitHub Enterprise name to validate')
+  .option('-d, --domain [domain]', 'Your organizations Entra domain (optional - e.g. company.onmicrosoft.com)')
   .action(async (options) => {
     console.log(chalk.blue.bold('🔍 SSO Configuration Validation\n'));
 
@@ -26,17 +27,19 @@ export const validateCommand = new Command('validate')
         console.log(chalk.red(`❌ No configuration found for enterprise: ${enterpriseName}`));
         console.log(chalk.yellow('Run: ghec-sso setup'));
         return;
-      }
-
-      // Initialize services
+      }      // Initialize services
       const authService = new AuthService();
       const spinner = ora('Authenticating...').start();
       
     //   const githubToken = await authService.authenticateGitHub();
-      const azureCredential = await authService.authenticateAzure();
+      
+      // Use domain from options if provided, otherwise fall back to config, or use common
+      const tenantDomain = options.domain || config.azure?.tenantDomain;
+      
+      const azureCredential = await authService.authenticateAzure(tenantDomain);
       
     //   const githubService = new GitHubService(githubToken);
-      const azureService = new AzureService(azureCredential, config.azure.tenantDomain);
+      const azureService = new AzureService(azureCredential, tenantDomain || 'common');
       
       spinner.succeed('Authentication successful');
 

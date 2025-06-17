@@ -19,8 +19,8 @@ export class AzureService {
   private graphClient: Client;
   private tenantDomain: string;
 
-  constructor(credential: TokenCredential, tenantDomain: string) {
-    this.tenantDomain = tenantDomain;
+  constructor(credential: TokenCredential, tenantDomain?: string) {
+    this.tenantDomain = tenantDomain || 'common';
     this.graphClient = Client.initWithMiddleware({
       authProvider: {
         getAccessToken: async () => {
@@ -33,7 +33,47 @@ export class AzureService {
 
   async createGitHubEnterpriseApp(enterpriseName: string): Promise<EntraApp> {
     try {
-      console.log(chalk.gray('   Step 1: Finding GitHub Enterprise template in gallery...'));
+      console.log(chalk.gray('   Step 1: Checking for existing GitHub Enterprise applications...'));
+        // First, check if there's already a GitHub Enterprise app for this enterprise
+      const existingApp = await this.findExistingGitHubApp(enterpriseName);
+      if (existingApp) {
+        console.log(chalk.yellow(`\n🔍 Found existing GitHub Enterprise application:`));
+        console.log(chalk.gray(`   Name: ${existingApp.displayName}`));
+        console.log(chalk.gray(`   Application ID: ${existingApp.appId}`));
+        
+        // Import inquirer to prompt user
+        const inquirer = await import('inquirer');
+        const { reuseApp } = await inquirer.default.prompt([{
+          type: 'confirm',
+          name: 'reuseApp',
+          message: 'Do you want to reuse this existing application?',
+          default: true
+        }]);
+        
+        if (reuseApp) {
+          console.log(chalk.green('   ✅ Reusing existing application...'));
+          
+          // Get tenant ID for URLs
+          const tenantId = await this.getTenantId();
+          
+          return {
+            id: existingApp.id,
+            appId: existingApp.appId,
+            ssoUrl: `https://login.microsoftonline.com/${tenantId}/saml2`,
+            entityId: `https://sts.windows.net/${tenantId}/`
+          };        } else {
+          console.log(chalk.red('\n❌ Cannot proceed without reusing existing application.'));
+          console.log(chalk.yellow('To avoid conflicts, you must either:'));
+          console.log(chalk.gray('1. Choose to reuse the existing application, or'));
+          console.log(chalk.gray('2. Delete the existing application in Azure Portal first'));
+          console.log(chalk.gray('3. Use a different enterprise name'));
+          const error = new Error('Setup cancelled: Cannot create duplicate applications for the same GitHub Enterprise.');
+          (error as any).userCancelled = true;
+          throw error;
+        }
+      }
+      
+      console.log(chalk.gray('   Step 2: Finding GitHub Enterprise template in gallery...'));
       
       // Step 1: Find GitHub Enterprise template in the gallery
       const template = await this.findGitHubGalleryApp();
@@ -99,24 +139,11 @@ export class AzureService {
             // Wait before retry
             await new Promise(resolve => setTimeout(resolve, 2000));
           }
-        }
-
-        console.log(chalk.gray('   Step 4: Configuring SAML URLs...'));
+        }        console.log(chalk.gray('   Step 4: Configuring SAML URLs...'));
         
-        // Step 4: Configure SAML URLs for the application
-        await this.graphClient
-          .api(`/applications/${applicationId}`)
-          .patch({
-            identifierUris: [
-              `https://github.com/enterprises/${enterpriseName}`
-            ],
-            web: {
-              redirectUris: [
-                `https://github.com/enterprises/${enterpriseName}/saml/consume`
-              ]
-            }
-          });
-
+        // Step 4: Configure SAML URLs for the application - do this AFTER certificate creation
+        // We'll configure this later in configureSAMLSettings to avoid conflicts
+        
         console.log(chalk.gray('   Step 5: Creating signing certificate...'));
         
         // Step 5: Create a token signing certificate
@@ -141,6 +168,11 @@ export class AzureService {
         console.log(chalk.yellow('   No template found, creating custom SAML application...'));
         return await this.createCustomSAMLApp(enterpriseName);
       }    } catch (error: any) {
+      // Re-throw user cancellation errors - don't fall back to custom app creation
+      if (error.userCancelled) {
+        throw error;
+      }
+      
       console.log(chalk.red(`   ❌ Template instantiation failed: ${error.message}`));
       console.log(chalk.yellow('   Falling back to custom SAML application...'));
       return await this.createCustomSAMLApp(enterpriseName);
@@ -210,6 +242,77 @@ export class AzureService {
     }
   }
 
+  async findExistingGitHubApp(enterpriseName: string): Promise<{ id: string; appId: string; displayName: string } | null> {
+    try {
+      console.log(chalk.gray(`   Looking for existing GitHub Enterprise apps for: ${enterpriseName}...`));
+      
+      // Search for service principals that might be GitHub Enterprise apps
+      const servicePrincipals = await this.graphClient
+        .api('/servicePrincipals')
+        .select('id,displayName,appId,preferredSingleSignOnMode')
+        .get();
+
+      if (!servicePrincipals.value || servicePrincipals.value.length === 0) {
+        return null;
+      }
+
+      // Filter for potential GitHub apps
+      const potentialGitHubApps = servicePrincipals.value.filter((sp: any) => 
+        sp.displayName && 
+        sp.displayName.toLowerCase().includes('github') &&
+        sp.displayName.toLowerCase().includes(enterpriseName.toLowerCase())
+      );
+
+      if (potentialGitHubApps.length === 0) {
+        console.log(chalk.gray(`   No existing GitHub apps found for enterprise: ${enterpriseName}`));
+        return null;
+      }      // Check if any of these apps have the right entity ID configuration
+      for (const sp of potentialGitHubApps) {
+        try {
+          const applications = await this.graphClient
+            .api('/applications')
+            .filter(`appId eq '${sp.appId}'`)
+            .select('id,identifierUris,web')
+            .get();
+
+          if (applications.value && applications.value.length > 0) {
+            const app = applications.value[0];
+            const expectedEntityId = `https://github.com/enterprises/${enterpriseName}`;
+            const expectedReplyUrl = `https://github.com/enterprises/${enterpriseName}/saml/consume`;
+            
+            const hasCorrectEntityId = app.identifierUris?.includes(expectedEntityId);
+            const hasCorrectReplyUrl = app.web?.redirectUris?.includes(expectedReplyUrl);
+
+            if (hasCorrectEntityId && hasCorrectReplyUrl) {
+              console.log(chalk.green(`   ✅ Found existing properly configured app: ${sp.displayName}`));
+              console.log(chalk.gray(`     Entity ID: ${expectedEntityId}`));
+              console.log(chalk.gray(`     Reply URL: ${expectedReplyUrl}`));
+              return {
+                id: sp.id,
+                appId: sp.appId,
+                displayName: sp.displayName
+              };
+            } else if (hasCorrectEntityId || hasCorrectReplyUrl) {
+              console.log(chalk.yellow(`   ⚠️  Found partially configured app: ${sp.displayName}`));
+              console.log(chalk.gray(`     Entity ID match: ${hasCorrectEntityId ? '✅' : '❌'}`));
+              console.log(chalk.gray(`     Reply URL match: ${hasCorrectReplyUrl ? '✅' : '❌'}`));
+              // Continue looking for a fully configured app
+            }
+          }
+        } catch (error) {
+          // Continue checking other apps
+          continue;
+        }
+      }
+
+      console.log(chalk.gray(`   No matching GitHub apps found for enterprise: ${enterpriseName}`));
+      return null;
+    } catch (error: any) {
+      console.log(chalk.gray(`   Error searching for existing apps: ${error.message}`));
+      return null;
+    }
+  }
+
   async createCustomSAMLApp(enterpriseName: string): Promise<EntraApp> {
     try {
       console.log(chalk.gray('   Creating custom SAML application...'));
@@ -258,16 +361,17 @@ export class AzureService {
     } catch (error: any) {
       throw new Error(`Failed to create custom SAML app: ${error.message}`);
     }
-  }
-  async configureSAMLSettings(servicePrincipalId: string, enterpriseName: string): Promise<void> {
+  }  async configureSAMLSettings(servicePrincipalId: string, enterpriseName: string): Promise<void> {
     try {
       console.log(chalk.gray('   Configuring SAML settings...'));
       
       // First, get the service principal to find the associated application
       const servicePrincipal = await this.graphClient
         .api(`/servicePrincipals/${servicePrincipalId}`)
-        .select('appId')
+        .select('appId,displayName')
         .get();
+
+      console.log(chalk.gray(`   Configuring ${servicePrincipal.displayName}...`));
 
       // Get the application object
       const applications = await this.graphClient
@@ -280,34 +384,139 @@ export class AzureService {
       }
 
       const applicationId = applications.value[0].id;
+      const currentApp = applications.value[0];
 
-      // Configure SAML settings on the APPLICATION object
+      // Check if this application already has the correct configuration
+      const targetEntityId = `https://github.com/enterprises/${enterpriseName}`;
+      const targetReplyUrl = `https://github.com/enterprises/${enterpriseName}/saml/consume`;
+      
+      const hasCorrectEntityId = currentApp.identifierUris?.includes(targetEntityId);
+      const hasCorrectReplyUrl = currentApp.web?.redirectUris?.includes(targetReplyUrl);
+      
+      if (hasCorrectEntityId && hasCorrectReplyUrl) {
+        console.log(chalk.green('   ✅ SAML configuration already correct'));
+        return;
+      }      // Check for conflicts with other applications
+      console.log(chalk.gray('   Checking for existing configurations...'));
+      try {
+        const allApplications = await this.graphClient
+          .api('/applications')
+          .filter(`identifierUris/any(uri:uri eq '${targetEntityId}')`)
+          .select('id,displayName,identifierUris')
+          .get();
+
+        if (allApplications.value && allApplications.value.length > 0) {
+          const conflictingApps = allApplications.value.filter((app: any) => app.id !== applicationId);
+          
+          if (conflictingApps.length > 0) {
+            console.log(chalk.red(`\n❌ Configuration conflict detected!`));
+            console.log(chalk.yellow(`Found ${conflictingApps.length} existing application(s) with the same Entity ID:`));
+            console.log(chalk.gray(`Entity ID: ${targetEntityId}\n`));
+            
+            conflictingApps.forEach((app: any, index: number) => {
+              console.log(chalk.yellow(`${index + 1}. ${app.displayName}`));
+              console.log(chalk.gray(`   Application ID: ${app.id}`));
+            });
+            
+            console.log(chalk.cyan('\n💡 Resolution options:'));
+            console.log(chalk.gray('1. Delete the conflicting application(s) in Azure Portal if no longer needed'));
+            console.log(chalk.gray('2. Use a different enterprise name for this setup'));
+            console.log(chalk.gray('3. Reuse the existing application if it\'s for the same GitHub Enterprise'));
+            console.log(chalk.gray('\nTo delete applications:'));
+            console.log(chalk.gray('• Go to Azure Portal > Azure Active Directory > App registrations'));
+            console.log(chalk.gray('• Find and delete the conflicting application(s)'));
+            
+            throw new Error(`Cannot configure SAML: Entity ID '${targetEntityId}' is already in use by another application. Please resolve the conflict and try again.`);
+          }
+        }
+      } catch (searchError: any) {
+        // If it's our custom error, re-throw it
+        if (searchError.message.includes('Cannot configure SAML')) {
+          throw searchError;
+        }
+        console.log(chalk.gray(`   Could not search for conflicts: ${searchError.message}`));
+        // Continue with normal configuration
+      }
+
+      // No conflicts found, use standard URLs
+      await this.configureSAMLWithUrls(applicationId, servicePrincipalId, enterpriseName, targetEntityId, targetReplyUrl);
+      
+    } catch (error: any) {
+      throw new Error(`Failed to configure SAML settings: ${error.message}`);
+    }
+  }
+
+  private async configureSAMLWithUrls(
+    applicationId: string, 
+    servicePrincipalId: string, 
+    enterpriseName: string,
+    entityId: string,
+    replyUrl: string
+  ): Promise<void> {
+    // Configure SAML settings on the APPLICATION object first
+    console.log(chalk.gray('   Setting application SAML configuration...'));
+    await this.graphClient
+      .api(`/applications/${applicationId}`)
+      .patch({
+        web: {
+          redirectUris: [replyUrl],
+          logoutUrl: `https://github.com/enterprises/${enterpriseName}/saml/sls`
+        },
+        identifierUris: [entityId]
+      });
+
+    // Wait a moment for the application update to propagate
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Configure additional properties on the SERVICE PRINCIPAL
+    console.log(chalk.gray('   Setting service principal SAML configuration...'));
+    await this.graphClient
+      .api(`/servicePrincipals/${servicePrincipalId}`)
+      .patch({
+        loginUrl: `https://github.com/enterprises/${enterpriseName}/sso`,
+        preferredSingleSignOnMode: 'saml'
+      });
+
+    // Verify the configuration was applied
+    console.log(chalk.gray('   Verifying SAML configuration...'));
+    const updatedApp = await this.graphClient
+      .api(`/applications/${applicationId}`)
+      .select('identifierUris,web')
+      .get();
+
+    const updatedSp = await this.graphClient
+      .api(`/servicePrincipals/${servicePrincipalId}`)
+      .select('preferredSingleSignOnMode,loginUrl')
+      .get();
+
+    // Check if configuration was applied correctly
+    const hasCorrectEntityId = updatedApp.identifierUris?.includes(entityId);
+    const hasCorrectReplyUrl = updatedApp.web?.redirectUris?.includes(replyUrl);
+    const hasCorrectSsoMode = updatedSp.preferredSingleSignOnMode === 'saml';
+
+    if (!hasCorrectEntityId || !hasCorrectReplyUrl || !hasCorrectSsoMode) {
+      console.log(chalk.yellow('   ⚠️  Configuration verification failed, retrying...'));
+      
+      // Retry the configuration
       await this.graphClient
         .api(`/applications/${applicationId}`)
         .patch({
           web: {
-            redirectUris: [
-              `https://github.com/enterprises/${enterpriseName}/saml/consume`
-            ],
+            redirectUris: [replyUrl],
             logoutUrl: `https://github.com/enterprises/${enterpriseName}/saml/sls`
           },
-          identifierUris: [
-            `https://github.com/enterprises/${enterpriseName}`
-          ]
+          identifierUris: [entityId]
         });
 
-      // Configure additional properties on the SERVICE PRINCIPAL
       await this.graphClient
         .api(`/servicePrincipals/${servicePrincipalId}`)
         .patch({
           loginUrl: `https://github.com/enterprises/${enterpriseName}/sso`,
           preferredSingleSignOnMode: 'saml'
         });
-      
-      console.log(chalk.green('   ✅ SAML settings configured'));
-    } catch (error: any) {
-      throw new Error(`Failed to configure SAML settings: ${error.message}`);
     }
+    
+    console.log(chalk.green('   ✅ SAML settings configured and verified'));
   }
 
   async downloadSAMLCertificate(servicePrincipalId: string): Promise<string> {
@@ -339,7 +548,6 @@ export class AzureService {
       throw new Error(`Failed to download SAML certificate: ${error.message}`);
     }
   }
-
   private async getTenantId(): Promise<string> {
     try {
       const organization = await this.graphClient
@@ -349,10 +557,28 @@ export class AzureService {
       
       return organization.value[0].id;
     } catch (error: any) {
-      // Fallback: extract from tenant domain if available
+      // Fallback: try to extract tenant ID from domain if available
+      if (this.tenantDomain && this.tenantDomain !== 'common') {
+        console.log(chalk.yellow(`   ⚠️  Could not get tenant ID from organization API, attempting to resolve from domain: ${this.tenantDomain}`));
+        
+        try {
+          // Try to get tenant info from the domain
+          const tenantInfo = await this.graphClient
+            .api(`/tenantRelationships/findTenantInformationByDomainName(domainName='${this.tenantDomain}')`)
+            .get();
+          
+          if (tenantInfo && tenantInfo.tenantId) {
+            console.log(chalk.green(`   ✅ Resolved tenant ID from domain: ${tenantInfo.tenantId}`));
+            return tenantInfo.tenantId;
+          }
+        } catch (domainError: any) {
+          console.log(chalk.yellow(`   ⚠️  Could not resolve tenant from domain: ${domainError.message}`));
+        }
+      }
+      
       throw new Error(`Failed to get tenant ID: ${error.message}`);
     }
-  }  async assignCurrentUserToApp(servicePrincipalId: string): Promise<void> {
+  }async assignCurrentUserToApp(servicePrincipalId: string): Promise<void> {
     try {
       console.log(chalk.gray('   Assigning current user to the application...'));
       
@@ -760,6 +986,262 @@ export class AzureService {
       };
     } catch (error: any) {
       throw new Error(`Failed to get provisioning status: ${error.message}`);
+    }
+  }
+
+  /**
+   * Validates that the Entra ID application exists and is properly configured
+   */  
+  async validateEnterpriseApp(): Promise<{ success: boolean; message: string }> {
+    try {
+      // Search for GitHub Enterprise applications in the tenant
+      // Note: We'll get all service principals and filter client-side since Graph API has limited filter support
+      const servicePrincipals = await this.graphClient
+        .api('/servicePrincipals')
+        .select('id,displayName,appId,preferredSingleSignOnMode,servicePrincipalType')
+        .get();      
+        if (!servicePrincipals.value || servicePrincipals.value.length === 0) {
+        return {
+          success: false,
+          message: 'No applications found in Entra ID'
+        };
+      }
+
+      // Filter for GitHub Enterprise applications client-side
+      const githubApps = servicePrincipals.value.filter((sp: any) => 
+        sp.displayName && sp.displayName.toLowerCase().includes('github')
+      );
+
+      if (githubApps.length === 0) {
+        return {
+          success: false,
+          message: 'No GitHub Enterprise applications found in Entra ID'
+        };
+      }      // Check if any GitHub app has SAML SSO configured
+      const samlApps = githubApps.filter((sp: any) => 
+        sp.preferredSingleSignOnMode === 'saml'
+      );
+
+      if (samlApps.length === 0) {
+        return {
+          success: false,
+          message: `Found ${githubApps.length} GitHub app(s) but none configured for SAML SSO`
+        };
+      }
+
+      return {
+        success: true,
+        message: `Found ${samlApps.length} GitHub Enterprise app(s) with SAML SSO configured`
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: `Error checking Entra ID applications: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Validates the SAML configuration for GitHub Enterprise applications
+   */  async validateSAMLConfig(): Promise<{ success: boolean; message: string }> {
+    try {
+      // Get all service principals and filter client-side
+      const servicePrincipals = await this.graphClient
+        .api('/servicePrincipals')
+        .select('id,displayName,appId,preferredSingleSignOnMode')
+        .get();
+
+      if (!servicePrincipals.value || servicePrincipals.value.length === 0) {
+        return {
+          success: false,
+          message: 'No applications found in Entra ID'
+        };
+      }
+
+      // Filter for GitHub Enterprise applications with SAML SSO
+      const githubSamlApps = servicePrincipals.value.filter((sp: any) => 
+        sp.displayName && 
+        sp.displayName.toLowerCase().includes('github') && 
+        sp.preferredSingleSignOnMode === 'saml'
+      );
+
+      if (githubSamlApps.length === 0) {
+        return {
+          success: false,
+          message: 'No GitHub Enterprise applications with SAML SSO found'
+        };
+      }      const validationResults = [];
+
+      for (const sp of githubSamlApps) {
+        try {
+          // Get the associated application
+          const applications = await this.graphClient
+            .api('/applications')
+            .filter(`appId eq '${sp.appId}'`)
+            .select('id,identifierUris,web')
+            .get();
+
+          if (!applications.value || applications.value.length === 0) {
+            validationResults.push(`${sp.displayName}: Associated application not found`);
+            continue;
+          }
+
+          const app = applications.value[0];
+          const issues = [];
+
+          // Check identifier URIs (Entity ID)
+          if (!app.identifierUris || app.identifierUris.length === 0) {
+            issues.push('Missing Entity ID (identifier URIs)');
+          } else {
+            const hasGitHubEntityId = app.identifierUris.some((uri: string) => 
+              uri.includes('github.com/enterprises')
+            );
+            if (!hasGitHubEntityId) {
+              issues.push('Entity ID does not match GitHub Enterprise format');
+            }
+          }
+
+          // Check redirect URIs (Reply URLs)
+          if (!app.web?.redirectUris || app.web.redirectUris.length === 0) {
+            issues.push('Missing Reply URLs');
+          } else {
+            const hasGitHubReplyUrl = app.web.redirectUris.some((uri: string) => 
+              uri.includes('github.com/enterprises') && uri.includes('/saml/consume')
+            );
+            if (!hasGitHubReplyUrl) {
+              issues.push('Reply URL does not match GitHub Enterprise SAML consume URL');
+            }
+          }
+
+          if (issues.length === 0) {
+            validationResults.push(`${sp.displayName}: ✅ SAML configuration valid`);
+          } else {
+            validationResults.push(`${sp.displayName}: ❌ ${issues.join(', ')}`);
+          }
+
+        } catch (error: any) {
+          validationResults.push(`${sp.displayName}: Error checking configuration - ${error.message}`);
+        }
+      }
+
+      const hasErrors = validationResults.some(result => result.includes('❌') || result.includes('Error'));
+
+      return {
+        success: !hasErrors,
+        message: validationResults.join('; ')
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: `Error validating SAML configuration: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Validates the SAML signing certificates for GitHub Enterprise applications
+   */  async validateCertificate(): Promise<{ success: boolean; message: string }> {
+    try {
+      // Get all service principals and filter client-side
+      const servicePrincipals = await this.graphClient
+        .api('/servicePrincipals')
+        .select('id,displayName,preferredSingleSignOnMode')
+        .get();
+
+      if (!servicePrincipals.value || servicePrincipals.value.length === 0) {
+        return {
+          success: false,
+          message: 'No applications found in Entra ID'
+        };
+      }
+
+      // Filter for GitHub Enterprise applications with SAML SSO
+      const githubSamlApps = servicePrincipals.value.filter((sp: any) => 
+        sp.displayName && 
+        sp.displayName.toLowerCase().includes('github') && 
+        sp.preferredSingleSignOnMode === 'saml'
+      );
+
+      if (githubSamlApps.length === 0) {
+        return {
+          success: false,
+          message: 'No GitHub Enterprise applications with SAML SSO found'
+        };
+      }      const certificateResults = [];
+
+      for (const sp of githubSamlApps) {
+        try {
+          // Get signing certificates for the service principal
+          const certificates = await this.graphClient
+            .api(`/servicePrincipals/${sp.id}`)
+            .select('keyCredentials')
+            .get();
+
+          if (!certificates.keyCredentials || certificates.keyCredentials.length === 0) {
+            certificateResults.push(`${sp.displayName}: ❌ No signing certificates found`);
+            continue;
+          }
+
+          // Check certificate validity
+          const now = new Date();
+          const validCertificates = certificates.keyCredentials.filter((cert: any) => {
+            const endDate = new Date(cert.endDateTime);
+            const usage = cert.usage;
+            return usage === 'Sign' && endDate > now;
+          });
+
+          if (validCertificates.length === 0) {
+            const expiredCerts = certificates.keyCredentials.filter((cert: any) => {
+              const endDate = new Date(cert.endDateTime);
+              return cert.usage === 'Sign' && endDate <= now;
+            });
+
+            if (expiredCerts.length > 0) {
+              certificateResults.push(`${sp.displayName}: ❌ All signing certificates have expired`);
+            } else {
+              certificateResults.push(`${sp.displayName}: ❌ No valid signing certificates found`);
+            }
+          } else {
+            // Check for certificates expiring soon (within 30 days)
+            const soonToExpire = validCertificates.filter((cert: any) => {
+              const endDate = new Date(cert.endDateTime);
+              const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+              return endDate <= thirtyDaysFromNow;
+            });
+
+            if (soonToExpire.length > 0) {
+              const expiryDates = soonToExpire.map((cert: any) => 
+                new Date(cert.endDateTime).toLocaleDateString()
+              ).join(', ');
+              certificateResults.push(`${sp.displayName}: ⚠️ ${validCertificates.length} valid certificate(s), ${soonToExpire.length} expiring soon (${expiryDates})`);
+            } else {
+              const nextExpiry = validCertificates.reduce((earliest: any, cert: any) => {
+                const certDate = new Date(cert.endDateTime);
+                const earliestDate = new Date(earliest.endDateTime);
+                return certDate < earliestDate ? cert : earliest;
+              });
+              const nextExpiryDate = new Date(nextExpiry.endDateTime).toLocaleDateString();
+              certificateResults.push(`${sp.displayName}: ✅ ${validCertificates.length} valid certificate(s), next expiry: ${nextExpiryDate}`);
+            }
+          }
+
+        } catch (error: any) {
+          certificateResults.push(`${sp.displayName}: Error checking certificates - ${error.message}`);
+        }
+      }
+
+      const hasErrors = certificateResults.some(result => result.includes('❌') || result.includes('Error'));
+      const hasWarnings = certificateResults.some(result => result.includes('⚠️'));
+
+      return {
+        success: !hasErrors,
+        message: certificateResults.join('; ')
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: `Error validating certificates: ${error.message}`
+      };
     }
   }
 }

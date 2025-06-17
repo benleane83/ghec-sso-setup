@@ -7,10 +7,9 @@ This guide helps you set up GitHub Enterprise Cloud SAML SSO with Microsoft Entr
 ### What You'll Need
 
 **Before starting:**
-- [ ] Admin access to your GitHub Enterprise Cloud account
 - [ ] Admin access to Microsoft Entra ID (Azure AD)
 - [ ] Your GitHub Enterprise name (e.g., `mycompany`)
-- [ ] Your organization domain (e.g., `mycompany.com`)
+- [ ] Your organization's Entra domain (e.g., `mycompany.onmicrosoft.com`)
 
 ### Installation (5 minutes)
 
@@ -41,12 +40,12 @@ ghec-sso auth login-pat
 
 #### Step 2: Run the automated setup
 ```bash
-ghec-sso setup --enterprise YOUR-ENTERPRISE --domain YOUR-DOMAIN.com
+ghec-sso setup --enterprise my-company
 ```
 
 **Example:**
 ```bash
-ghec-sso setup --enterprise acme-corp --domain acme.com
+ghec-sso setup --enterprise acme-corp
 ```
 
 #### Step 3: Complete GitHub configuration
@@ -56,7 +55,7 @@ The tool will:
 - ✅ Provide SAML configuration values
 - ✅ Open GitHub Enterprise SAML settings page
 
-**Copy the displayed values into GitHub:**
+**Assist in copying the displayed values into GitHub:**
 - Sign-On URL
 - Issuer (Entity ID)
 - Certificate
@@ -99,7 +98,7 @@ npm --version
 ghec-sso auth status
 
 # Debug enterprise access
-ghec-sso auth debug -e YOUR-ENTERPRISE
+ghec-sso auth debug -e my-company
 
 # Re-authenticate if needed
 ghec-sso auth logout
@@ -110,7 +109,7 @@ ghec-sso auth login-pat
 
 - **View all commands:** `ghec-sso --help`
 - **Check status:** `ghec-sso auth status`
-- **Validate setup:** `ghec-sso validate -e YOUR-ENTERPRISE`
+- **Validate setup:** `ghec-sso validate -e my-company`
 
 ### Important Security Notes
 

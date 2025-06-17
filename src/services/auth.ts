@@ -67,8 +67,7 @@ export class AuthService {
       return await this.promptForGitHubPAT();
     }
   }
-
-  async authenticateAzure(): Promise<any> {
+  async authenticateAzure(tenantDomain?: string): Promise<any> {
     try {
       // Try Azure CLI credential first
       const azureCliCredential = new AzureCliCredential();
@@ -80,12 +79,28 @@ export class AuthService {
       return azureCliCredential;
     } catch {
       console.log(chalk.cyan('🔐 No Azure CLI session found, starting device flow...'));
-      return await this.azureDeviceFlow();
+      return await this.azureDeviceFlow(tenantDomain);
     }
-  }
-  private async azureDeviceFlow(): Promise<DeviceCodeCredential> {
+  }  private async azureDeviceFlow(tenantDomain?: string): Promise<DeviceCodeCredential> {
+    // Normalize the tenant domain format
+    let tenantId = "common";
+    
+    if (tenantDomain) {
+      // Handle both formats: "company" or "company.onmicrosoft.com"
+      if (tenantDomain.includes('.onmicrosoft.com')) {
+        tenantId = tenantDomain; // Already in correct format
+      } else {
+        tenantId = `${tenantDomain}.onmicrosoft.com`; // Add suffix
+      }
+    }
+    
+    console.log(chalk.gray(tenantDomain ? 
+      `   Authenticating to tenant: ${tenantId}` : 
+      '   Authenticating to any tenant (common)'
+    ));
+    
     const credential = new DeviceCodeCredential({
-      tenantId: "common", // Allow any tenant
+      tenantId: tenantId,
       clientId: "04b07795-8ddb-461a-bbee-02f9e1bf7b46", // Azure CLI client ID (public)
       userPromptCallback: (info: any) => {
         console.log(chalk.yellow(`\n📱 Please visit: ${info.verificationUri}`));
