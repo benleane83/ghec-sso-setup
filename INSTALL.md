@@ -81,10 +81,6 @@ ghec-sso setup --enterprise mycompany
 - Try running with full path: `npx ghec-sso --help`
 - Re-run: `npm install -g git+https://github.com/benleane83/ghec-sso-setup.git`
 
-**Permission errors on Windows:**
-- Run your terminal as Administrator
-- Or use: `npm install -g git+https://github.com/benleane83/ghec-sso-setup.git --force`
-
 **Permission errors on macOS/Linux:**
 ```bash
 sudo npm install -g git+https://github.com/benleane83/ghec-sso-setup.git

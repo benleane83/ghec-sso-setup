@@ -20,7 +20,6 @@ export const setupCommand = new Command('setup')
   .option('-d, --domain [domain]', 'Your organizations Entra domain (optional - e.g. company.onmicrosoft.com)')
   .option('--plan', 'Generate a comprehensive HTML setup plan without making changes')
   .option('--plan-output [path]', 'Custom output path for the setup plan (only with --plan)')
-  .option('--force', 'Force setup even if validation fails')
   .action(async (options) => {
     console.log(chalk.blue.bold('🚀 GitHub Enterprise Cloud SSO Setup\n'));
 
@@ -54,7 +53,9 @@ export const setupCommand = new Command('setup')
         ]);
 
         config = { ...config, ...missing };
-      }      console.log(chalk.cyan(`📋 Configuration:`));
+      }      
+      
+      console.log(chalk.cyan(`📋 Configuration:`));
       console.log(chalk.gray(`   Enterprise: ${config.enterprise}`));
       console.log(chalk.gray(`   Domain: ${config.domain || 'common (default tenant)'}`));
       console.log(chalk.gray(`   Mode: ${options.plan ? 'PLAN' : 'LIVE'}\n`));
@@ -76,13 +77,16 @@ export const setupCommand = new Command('setup')
     //   console.log(chalk.green(`✅ ${enterpriseValidation.message}\n`));
       
       // We'll initialize Azure service after we get Azure credentials
-      let azureService: AzureService | null = null;      // Step 2: Get Azure credentials
+      let azureService: AzureService | null = null;     
+      
+      // Step 2: Get Azure credentials
       console.log(chalk.cyan('🔍 Step 2: Getting Azure credentials...'));
       try {
         const azureCredential = await authService.authenticateAzure(config.domain);
         azureService = new AzureService(azureCredential, config.domain);
         console.log(chalk.green('✅ Azure authentication validated\n'));
-      } catch (error: any) {
+      } 
+      catch (error: any) {
         console.log(chalk.red(`❌ Azure authentication failed: ${error.message}`));
         console.log(chalk.yellow('Run: ghec-sso auth login'));
         return;
@@ -96,7 +100,9 @@ export const setupCommand = new Command('setup')
         signOnUrl: `https://github.com/enterprises/${config.enterprise}/sso`,
         entityId: `https://github.com/enterprises/${config.enterprise}`,
         replyUrl: `https://github.com/enterprises/${config.enterprise}/saml/consume`
-      };      if (options.plan) {
+      };      
+      
+      if (options.plan) {
         console.log(chalk.blue.bold('📋 Generating Comprehensive Setup Plan...\n'));
         
         const templateProcessor = new TemplateProcessor();
@@ -166,7 +172,8 @@ export const setupCommand = new Command('setup')
           console.log(chalk.gray(`   Reply URL: ${appConfig.replyUrl}`));
           console.log(chalk.gray(`   SCIM Endpoint: https://api.github.com/scim/v2/enterprises/${config.enterprise}/\n`));
         }
-      } else {
+      } 
+      else {
         try {
           const entraApp = await azureService!.createGitHubEnterpriseApp(config.enterprise);
           await azureService!.configureSAMLSettings(entraApp.id, config.enterprise);
@@ -210,159 +217,53 @@ export const setupCommand = new Command('setup')
             console.log(chalk.yellow('⚠️  Could not auto-open browser'));
             console.log(chalk.gray(`   Please manually visit: ${githubSamlUrl}`));
           }
-          
+            
           console.log(chalk.cyan('\n📝 Next Steps:'));
           console.log(chalk.gray('1. In the opened GitHub page, click "Enable SAML authentication"'));
           console.log(chalk.gray('2. Enter the Sign-On URL, Issuer, and Certificate from above'));
           console.log(chalk.gray('3. Test the SAML connection'));
           console.log(chalk.gray('4. Enable "Require SAML SSO authentication"'));
+          console.log(chalk.gray('5. After SAML is working, refer to the SCIM instructions below to enable user provisioning'));            // Manual SCIM setup instructions (automated setup temporarily disabled)
           
-          // Interactive SCIM setup
-          console.log(chalk.cyan('\n🔄 SCIM Provisioning Setup:'));
-          console.log(chalk.yellow('After configuring SAML SSO in GitHub, you can set up automatic user provisioning.'));
-          
-          const inquirer = await import('inquirer');
-          const { setupScim } = await inquirer.default.prompt([{
-            type: 'confirm',
-            name: 'setupScim',
-            message: 'Would you like to configure SCIM user provisioning now?',
-            default: false
-          }]);
+          // TODO: To re-enable interactive SCIM setup, replace this section with:
+          // await setupInteractiveSCIM(azureService!, entraApp, config, appConfig);
 
-          if (setupScim) {
-            console.log(chalk.cyan('\n⏳ Waiting for GitHub SAML SSO configuration...'));
-            console.log(chalk.gray('Please complete the GitHub SAML SSO setup first, then return here.'));
-            console.log(chalk.gray('In GitHub Enterprise, go to Settings > Security > SCIM provisioning'));
-            console.log(chalk.gray('Generate a SCIM token and record the value.'));
-            
-            const { continueScim } = await inquirer.default.prompt([{
-              type: 'confirm',
-              name: 'continueScim',
-              message: 'Have you completed GitHub SAML SSO setup and are ready to configure SCIM?',
-              default: false
-            }]);            if (continueScim) {
-              // Auto-generate the SCIM endpoint URL
-              const scimEndpoint = `https://api.github.com/scim/v2/enterprises/${config.enterprise}/`;
-              console.log(chalk.cyan(`\n📋 GitHub SCIM Configuration:`));
-              console.log(chalk.gray(`   SCIM Endpoint: ${scimEndpoint}`));
-              console.log(chalk.gray('   (This endpoint will be automatically configured in Azure AD)\n'));
-              
-              const scimConfig = await inquirer.default.prompt([
-                {
-                  type: 'password',
-                  name: 'scimToken',
-                  message: 'Enter the GitHub SCIM token:',
-                  validate: (input: string) => input.length > 0 || 'SCIM token is required'
-                }
-              ]);
-
-              try {
-                console.log(chalk.cyan('\n🔧 Configuring SCIM provisioning in Entra ID...'));
-                  await azureService!.configureSCIMProvisioning(
-                  entraApp.id, 
-                  scimEndpoint,  // Use auto-generated endpoint
-                  scimConfig.scimToken
-                );
-                
-                console.log(chalk.green('✅ SCIM provisioning configured successfully'));
-                
-                // Verify the service principal still exists after SCIM configuration
-                try {
-                  console.log(chalk.gray('   Verifying service principal after SCIM setup...'));
-                  const diagnostic = await azureService!.diagnoseSCIMIssues(entraApp.id, config.enterprise);
-                  if (!diagnostic.exists) {
-                    console.log(chalk.red('\n❌ Service Principal was deleted during SCIM setup!'));
-                    console.log(chalk.yellow('Diagnostic recommendations:'));
-                    diagnostic.recommendations.forEach(rec => {
-                      console.log(chalk.gray(`• ${rec}`));
-                    });
-                    console.log(chalk.cyan('\n💡 This indicates an issue with the SCIM configuration that caused Azure to remove the Enterprise Application.'));
-                    console.log(chalk.gray('You may need to:'));
-                    console.log(chalk.gray('1. Verify your GitHub SCIM token is valid and has correct permissions'));
-                    console.log(chalk.gray('2. Check that your GitHub Enterprise supports SCIM provisioning'));
-                    console.log(chalk.gray('3. Try running the setup again without SCIM provisioning'));
-                    throw new Error('Service Principal was deleted during SCIM configuration');
-                  }
-                } catch (diagnosticError: any) {
-                  console.log(chalk.yellow(`⚠️  Could not verify service principal: ${diagnosticError.message}`));
-                }
-                
-                // Test the SCIM connection
-                const connectionTest = await azureService!.testSCIMConnection(entraApp.id);
-                  if (connectionTest) {
-                  console.log(chalk.green('✅ SCIM connection test passed'));
-                  
-                  // Enable on-demand provisioning
-                  await azureService!.enableProvisioningOnDemand(entraApp.id);
-                  
-                  console.log(chalk.green('✅ SCIM provisioning configured successfully!'));
-                  
-                  // Ask if user wants to start automatic provisioning
-                  const { startProvisioning } = await inquirer.default.prompt([{
-                    type: 'confirm',
-                    name: 'startProvisioning',
-                    message: 'Do you want to start automatic provisioning now?',
-                    default: false
-                  }]);
-                  
-                  if (startProvisioning) {
-                    console.log(chalk.yellow('⚠️  Warning: This will begin syncing users immediately.'));
-                    console.log(chalk.yellow('   Ensure GitHub SAML SSO is working correctly first.'));
-                    
-                    const { confirmStart } = await inquirer.default.prompt([{
-                      type: 'confirm',
-                      name: 'confirmStart',
-                      message: 'Are you sure you want to start provisioning now?',
-                      default: false
-                    }]);
-                    
-                    if (confirmStart) {
-                      try {
-                        await azureService!.startProvisioning(entraApp.id);
-                        console.log(chalk.green('✅ Automatic provisioning started!'));
-                        
-                        // Show provisioning status
-                        const status = await azureService!.getProvisioningStatus(entraApp.id);
-                        console.log(chalk.gray(`   Status: ${status.status}`));
-                        console.log(chalk.gray('   Initial synchronization may take several minutes'));
-                        
-                      } catch (provError: any) {
-                        console.log(chalk.red(`❌ Failed to start provisioning: ${provError.message}`));
-                        console.log(chalk.yellow('You can start it manually in Azure Portal > Enterprise Applications > Provisioning'));
-                      }
-                    } else {
-                      console.log(chalk.yellow('⏭️  Provisioning not started. You can start it manually later.'));
-                    }
-                  } else {
-                    console.log(chalk.yellow('⏭️  Provisioning not started. You can start it manually later.'));
-                  }
-                  
-                  console.log(chalk.cyan('\n🎉 SCIM Provisioning Setup Complete!'));
-                  console.log(chalk.gray('Users assigned to this application will be automatically provisioned to GitHub Enterprise.'));
-                  console.log(chalk.gray('You can manage provisioning by:'));
-                  console.log(chalk.gray('1. Assigning users to the application in Azure AD'));
-                  console.log(chalk.gray('2. Using "Provision on demand" in the Azure portal'));
-                  console.log(chalk.gray('3. Monitoring synchronization cycles in Azure portal'));
-                } else {
-                  console.log(chalk.yellow('⚠️  SCIM connection test failed. Please verify the endpoint and token.'));
-                }
-                
-              } catch (scimError: any) {
-                console.log(chalk.red(`❌ SCIM configuration failed: ${scimError.message}`));
-                console.log(chalk.yellow('You can configure SCIM provisioning manually in the Azure portal later.'));
-              }
-            } else {
-              console.log(chalk.yellow('⏭️  Skipping SCIM setup. You can configure it later in the Azure portal.'));
-            }
-          } else {
-            console.log(chalk.yellow('⏭️  Skipping SCIM setup. You can configure it later in the Azure portal.'));
-          }
+          console.log(chalk.yellow('📋 Manual SCIM Configuration Instructions:\n'));
           
-          console.log(chalk.green.bold('\n🎉 Setup Complete!'));
-          console.log(chalk.gray('Your GitHub Enterprise SAML SSO with Entra ID is now configured.'));
+          // Display the SCIM endpoint for the user
+          const scimEndpoint = `https://api.github.com/scim/v2/enterprises/${config.enterprise}`;
+    
+          console.log(chalk.yellow('📝 Step-by-Step SCIM Setup:'));
+          console.log(chalk.gray('1. Generate a SCIM personal access token:'));
+          console.log(chalk.gray('   • Go to GitHub.com > Settings > Developer settings > Personal access tokens'));
+          console.log(chalk.gray('   • Click "Generate new token (classic)"'));
+          console.log(chalk.gray('   • Select scopes: scim:enterprise (under admin:enterprise)'));
+          console.log(chalk.gray('   • Copy the generated token\n'));
+          
+          console.log(chalk.yellow('🏢 Configure in Entra ID:'));
+          console.log(chalk.gray('2 Go to Azure Portal > Enterprise Applications'));
+          console.log(chalk.gray(`3. Find and open "${appConfig.displayName}"`));
+          console.log(chalk.gray('4. Click "Provisioning" in the left menu'));
+          console.log(chalk.gray('5. Click "Get started"'));
+          console.log(chalk.gray('6. Set Provisioning Mode to "Automatic"'));
+          console.log(chalk.gray('7. In Admin Credentials section:'));
+          console.log(chalk.gray(`    • Tenant URL: ${scimEndpoint}`));
+          console.log(chalk.gray('    • Secret Token: [Paste your GitHub SCIM token]'));
+          console.log(chalk.gray('8. Click "Test Connection" to verify'));
+          console.log(chalk.gray('9. Configure Settings as needed'));
+          console.log(chalk.gray('10. Click "Save" and then "Start provisioning"\n'));
+          
+          console.log(chalk.yellow('⚠️  Important Notes:'));
+          console.log(chalk.gray('• Only configure SCIM after SAML SSO is fully working'));
+          console.log(chalk.gray('• Test with a small group of users first'));
+          console.log(chalk.gray('• Monitor the first synchronization cycle for any issues\n'));
+          
+          console.log(chalk.green.bold('🎉 Setup Complete!'));
+          console.log(chalk.gray('Once these steps are completed, your GitHub Enterprise SAML SSO with Entra ID will now be configured.'));
           console.log(chalk.gray('Users can sign in using their organizational credentials.\n'));
           console.log(chalk.gray('Please add additional Entra users or groups to your app as required.\n'));
-            } catch (error: any) {
+        } 
+        catch (error: any) {
           // Check if this is a user cancellation - don't show fallback instructions
           if (error.userCancelled) {
             console.log(chalk.gray('\n⏸️  Setup cancelled by user.'));
@@ -388,7 +289,155 @@ export const setupCommand = new Command('setup')
 
     } catch (error: any) {
       console.error(chalk.red(`❌ Setup failed: ${error.message}`));
-      console.log(chalk.yellow('💡 Run: ghec-sso auth debug -e <enterprise> for troubleshooting'));
       process.exit(1);
     }
   });
+
+// SCIM Provisioning Setup Method (currently disabled but preserved for future use)
+// This method contains the original interactive SCIM setup that was temporarily disabled
+// due to template selection issues. Can be re-enabled by calling this method instead of
+// showing manual instructions.
+async function setupInteractiveSCIM(azureService: AzureService, entraApp: any, config: any, appConfig: any) {
+  const inquirer = await import('inquirer');
+  
+  console.log(chalk.cyan('\n🔄 SCIM Provisioning Setup:'));
+  console.log(chalk.yellow('After configuring SAML SSO in GitHub, you can set up automatic user provisioning.'));
+  
+  const { setupScim } = await inquirer.default.prompt([{
+    type: 'confirm',
+    name: 'setupScim',
+    message: 'Would you like to configure SCIM user provisioning now?',
+    default: false
+  }]);
+
+  if (setupScim) {
+    console.log(chalk.cyan('\n⏳ Waiting for GitHub SAML SSO configuration...'));
+    console.log(chalk.gray('Please complete the GitHub SAML SSO setup first, then return here.'));
+    console.log(chalk.gray('In GitHub Enterprise, go to Settings > Security > SCIM provisioning'));
+    console.log(chalk.gray('Generate a SCIM token and record the value.'));
+    
+    const { continueScim } = await inquirer.default.prompt([{
+      type: 'confirm',
+      name: 'continueScim',
+      message: 'Have you completed GitHub SAML SSO setup and are ready to configure SCIM?',
+      default: false
+    }]);            
+    
+    if (continueScim) {
+      // Auto-generate the SCIM endpoint URL
+      const scimEndpoint = `https://api.github.com/scim/v2/enterprises/${config.enterprise}/`;
+      console.log(chalk.cyan(`\n📋 GitHub SCIM Configuration:`));
+      console.log(chalk.gray(`   SCIM Endpoint: ${scimEndpoint}`));
+      console.log(chalk.gray('   (This endpoint will be automatically configured in Azure AD)\n'));
+      
+      const scimConfig = await inquirer.default.prompt([
+        {
+          type: 'password',
+          name: 'scimToken',
+          message: 'Enter the GitHub SCIM token:',
+          validate: (input: string) => input.length > 0 || 'SCIM token is required'
+        }
+      ]);
+
+      try {
+        console.log(chalk.cyan('\n🔧 Configuring SCIM provisioning in Entra ID...'));
+        await azureService.configureSCIMProvisioning(
+          entraApp.id, 
+          scimEndpoint,  // Use auto-generated endpoint
+          scimConfig.scimToken
+        );
+        
+        console.log(chalk.green('✅ SCIM provisioning configured successfully'));
+        
+        // Verify the service principal still exists after SCIM configuration
+        try {
+          console.log(chalk.gray('   Verifying service principal after SCIM setup...'));
+          const diagnostic = await azureService.diagnoseSCIMIssues(entraApp.id, config.enterprise);
+          if (!diagnostic.exists) {
+            console.log(chalk.red('\n❌ Service Principal was deleted during SCIM setup!'));
+            console.log(chalk.yellow('Diagnostic recommendations:'));
+            diagnostic.recommendations.forEach(rec => {
+              console.log(chalk.gray(`• ${rec}`));
+            });
+            console.log(chalk.cyan('\n💡 This indicates an issue with the SCIM configuration that caused Azure to remove the Enterprise Application.'));
+            console.log(chalk.gray('You may need to:'));
+            console.log(chalk.gray('1. Verify your GitHub SCIM token is valid and has correct permissions'));
+            console.log(chalk.gray('2. Check that your GitHub Enterprise supports SCIM provisioning'));
+            console.log(chalk.gray('3. Try running the setup again without SCIM provisioning'));
+            throw new Error('Service Principal was deleted during SCIM configuration');
+          }
+        } catch (diagnosticError: any) {
+          console.log(chalk.yellow(`⚠️  Could not verify service principal: ${diagnosticError.message}`));
+        }
+        
+        // Test the SCIM connection
+        const connectionTest = await azureService.testSCIMConnection(entraApp.id);
+        if (connectionTest) {
+          console.log(chalk.green('✅ SCIM connection test passed'));
+          
+          // Enable on-demand provisioning
+          await azureService.enableProvisioningOnDemand(entraApp.id);
+          
+          console.log(chalk.green('✅ SCIM provisioning configured successfully!'));
+          
+          // Ask if user wants to start automatic provisioning
+          const { startProvisioning } = await inquirer.default.prompt([{
+            type: 'confirm',
+            name: 'startProvisioning',
+            message: 'Do you want to start automatic provisioning now?',
+            default: false
+          }]);
+          
+          if (startProvisioning) {
+            console.log(chalk.yellow('⚠️  Warning: This will begin syncing users immediately.'));
+            console.log(chalk.yellow('   Ensure GitHub SAML SSO is working correctly first.'));
+            
+            const { confirmStart } = await inquirer.default.prompt([{
+              type: 'confirm',
+              name: 'confirmStart',
+              message: 'Are you sure you want to start provisioning now?',
+              default: false
+            }]);
+            
+            if (confirmStart) {
+              try {
+                await azureService.startProvisioning(entraApp.id);
+                console.log(chalk.green('✅ Automatic provisioning started!'));
+                
+                // Show provisioning status
+                const status = await azureService.getProvisioningStatus(entraApp.id);
+                console.log(chalk.gray(`   Status: ${status.status}`));
+                console.log(chalk.gray('   Initial synchronization may take several minutes'));
+                
+              } catch (provError: any) {
+                console.log(chalk.red(`❌ Failed to start provisioning: ${provError.message}`));
+                console.log(chalk.yellow('You can start it manually in Azure Portal > Enterprise Applications > Provisioning'));
+              }
+            } else {
+              console.log(chalk.yellow('⏭️  Provisioning not started. You can start it manually later.'));
+            }
+          } else {
+            console.log(chalk.yellow('⏭️  Provisioning not started. You can start it manually later.'));
+          }
+          
+          console.log(chalk.cyan('\n🎉 SCIM Provisioning Setup Complete!'));
+          console.log(chalk.gray('Users assigned to this application will be automatically provisioned to GitHub Enterprise.'));
+          console.log(chalk.gray('You can manage provisioning by:'));
+          console.log(chalk.gray('1. Assigning users to the application in Azure AD'));
+          console.log(chalk.gray('2. Using "Provision on demand" in the Azure portal'));
+          console.log(chalk.gray('3. Monitoring synchronization cycles in Azure portal'));
+        } else {
+          console.log(chalk.yellow('⚠️  SCIM connection test failed. Please verify the endpoint and token.'));
+        }
+        
+      } catch (scimError: any) {
+        console.log(chalk.red(`❌ SCIM configuration failed: ${scimError.message}`));
+        console.log(chalk.yellow('You can configure SCIM provisioning manually in the Azure portal later.'));
+      }
+    } else {
+      console.log(chalk.yellow('⏭️  Skipping SCIM setup. You can configure it later in the Azure portal.'));
+    }
+  } else {
+    console.log(chalk.yellow('⏭️  Skipping SCIM setup. You can configure it later in the Azure portal.'));
+  }
+}

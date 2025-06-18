@@ -86,7 +86,9 @@ export class AzureService {
           .api(`/applicationTemplates/${template.id}/instantiate`)
           .post({
             displayName: `GitHub Enterprise SSO - ${enterpriseName}`
-          });        const applicationId = instantiateResponse.application.id;
+          });        
+          
+        const applicationId = instantiateResponse.application.id;
         let servicePrincipalId = instantiateResponse.servicePrincipal.id;
         const appId = instantiateResponse.application.appId;console.log(chalk.gray('   Step 3: Configuring SAML SSO mode...'));
         
@@ -152,9 +154,7 @@ export class AzureService {
           .post({
             displayName: `CN=GitHub-${enterpriseName}`,
             endDateTime: new Date(Date.now() + 3 * 365 * 24 * 60 * 60 * 1000).toISOString() // 3 years from now
-          });
-
-        // Get tenant ID for entity ID
+          });        // Get tenant ID for entity ID
         const tenantId = await this.getTenantId();
         
         return {
@@ -165,76 +165,75 @@ export class AzureService {
         };
         
       } else {
-        console.log(chalk.yellow('   No template found, creating custom SAML application...'));
-        return await this.createCustomSAMLApp(enterpriseName);
+        // STRICT: Do not allow fallback to custom SAML apps - this breaks SCIM provisioning
+        console.log(chalk.red('   ❌ GitHub Enterprise Managed User template is required for SCIM provisioning'));
+        console.log(chalk.yellow('   Custom SAML applications do not support automated SCIM provisioning.'));
+        console.log(chalk.gray('   Please ensure the "GitHub Enterprise Managed User" template is available in your Azure tenant.'));
+        throw new Error('GitHub Enterprise Managed User template not found. This template is required for SCIM provisioning support.');
       }    } catch (error: any) {
       // Re-throw user cancellation errors - don't fall back to custom app creation
       if (error.userCancelled) {
         throw error;
       }
       
+      // STRICT: Do not fall back to custom SAML app creation for SCIM scenarios
       console.log(chalk.red(`   ❌ Template instantiation failed: ${error.message}`));
-      console.log(chalk.yellow('   Falling back to custom SAML application...'));
-      return await this.createCustomSAMLApp(enterpriseName);
+      console.log(chalk.red('   Cannot create GitHub Enterprise app without the proper gallery template.'));
+      console.log(chalk.yellow('   The "GitHub Enterprise Managed User" template is required for:'));
+      console.log(chalk.gray('     - SCIM user provisioning'));
+      console.log(chalk.gray('     - Proper synchronization templates'));
+      console.log(chalk.gray('     - GitHub Enterprise integration'));
+      throw new Error(`GitHub Enterprise app creation failed: ${error.message}. Gallery template is required for SCIM support.`);
     }
   }
-
   async findGitHubGalleryApp(): Promise<{ id: string; displayName: string } | null> {
     try {
-      console.log(chalk.gray('   Searching for GitHub Enterprise templates...'));
+      console.log(chalk.gray('   Searching for GitHub Enterprise Managed User template...'));
       
-      // Search for GitHub Enterprise application templates
-      const searchTerms = [
-        'GitHub Enterprise Managed User',
-        'GitHub Enterprise Server',
-        'GitHub Enterprise Cloud',
-        'GitHub Enterprise'
-      ];
-
-      for (const searchTerm of searchTerms) {
-        try {
-          const response = await this.graphClient
-            .api('/applicationTemplates')
-            .filter(`displayName eq '${searchTerm}'`)
-            .get();
-
-          if (response.value && response.value.length > 0) {
-            const app = response.value[0];
-            console.log(chalk.green(`   ✅ Found template: ${app.displayName} (ID: ${app.id})`));
-            return { id: app.id, displayName: app.displayName };
-          }
-        } catch (searchError) {
-          console.log(chalk.gray(`   No exact match for "${searchTerm}"`));
-        }
-      }
-
-      // If no exact match, search more broadly
-      console.log(chalk.gray('   Searching broadly for GitHub templates...'));
+      // STRICT: Only search for the exact 'GitHub Enterprise Managed User' template
+      // This is the ONLY supported template for SCIM provisioning with GitHub Enterprise
+      const exactTemplateName = 'GitHub Enterprise Managed User';
+      
       try {
         const response = await this.graphClient
+          .api('/applicationTemplates')
+          .filter(`displayName eq '${exactTemplateName}'`)
+          .get();
+
+        if (response.value && response.value.length > 0) {
+          const app = response.value[0];
+          console.log(chalk.green(`   ✅ Found required template: ${app.displayName} (ID: ${app.id})`));
+          return { id: app.id, displayName: app.displayName };
+        }
+      } catch (searchError: any) {
+        console.log(chalk.red(`   Failed to search for template: ${searchError.message}`));
+      }
+
+      // STRICT: Do NOT fall back to other templates - this causes the wrong sync template to be used
+      console.log(chalk.red('   ❌ Required template not found: GitHub Enterprise Managed User'));
+      console.log(chalk.yellow('   This template is required for proper SCIM provisioning with GitHub Enterprise.'));
+      console.log(chalk.yellow('   Possible causes:'));
+      console.log(chalk.gray('     1. The template may not be available in your Azure tenant'));
+      console.log(chalk.gray('     2. Your tenant may not have access to GitHub Enterprise gallery apps'));
+      console.log(chalk.gray('     3. The template name may have changed in the Azure gallery'));
+      
+      // Let's also search to see what GitHub templates ARE available for troubleshooting
+      try {
+        const allGitHubResponse = await this.graphClient
           .api('/applicationTemplates')
           .filter(`contains(displayName, 'GitHub')`)
           .get();
 
-        if (response.value && response.value.length > 0) {
-          console.log(chalk.yellow(`   Found ${response.value.length} GitHub-related templates:`));
-          response.value.forEach((app: any, index: number) => {
+        if (allGitHubResponse.value && allGitHubResponse.value.length > 0) {
+          console.log(chalk.yellow(`   Available GitHub templates in your tenant:`));
+          allGitHubResponse.value.forEach((app: any, index: number) => {
             console.log(chalk.gray(`     ${index + 1}. ${app.displayName} (ID: ${app.id})`));
           });
-          
-          // Try to find the most relevant one
-          const preferredApp = response.value.find((app: any) => 
-            app.displayName.toLowerCase().includes('enterprise') ||
-            app.displayName.toLowerCase().includes('managed')
-          ) || response.value[0];
-          
-          console.log(chalk.yellow(`   Using: ${preferredApp.displayName}`));
-          return { id: preferredApp.id, displayName: preferredApp.displayName };
-        }      } catch (broadSearchError: any) {
-        console.log(chalk.red(`   Broad search failed: ${broadSearchError.message}`));
+        }
+      } catch (listError) {
+        console.log(chalk.gray('   Could not list available GitHub templates'));
       }
 
-      console.log(chalk.yellow('   No GitHub templates found in gallery'));
       return null;
     } catch (error: any) {
       console.log(chalk.red(`   Gallery search failed: ${error.message}`));
@@ -361,7 +360,9 @@ export class AzureService {
     } catch (error: any) {
       throw new Error(`Failed to create custom SAML app: ${error.message}`);
     }
-  }  async configureSAMLSettings(servicePrincipalId: string, enterpriseName: string): Promise<void> {
+  }  
+  
+  async configureSAMLSettings(servicePrincipalId: string, enterpriseName: string): Promise<void> {
     try {
       console.log(chalk.gray('   Configuring SAML settings...'));
       
@@ -772,24 +773,76 @@ export class AzureService {
     console.log(chalk.gray('5. Enable team synchronization and get the SCIM endpoint URL'));
     console.log(chalk.gray('6. Generate a SCIM token in GitHub'));
     console.log(chalk.gray('7. Return to Azure AD > Enterprise Applications > Your GitHub App'));
-    console.log(chalk.gray('8. Configure provisioning with the SCIM endpoint and token\n'));
+    console.log(chalk.gray('8. Configure provisioning with the SCIM endpoint and token\n'));  
   }
+  
+  // Validate that the service principal is from the correct GitHub Enterprise gallery app
+  async validateGitHubEnterpriseApp(servicePrincipalId: string): Promise<void> {
+    try {
+      console.log(chalk.gray('   Validating GitHub Enterprise application...'));
+      
+      // Get service principal details
+      const servicePrincipal = await this.graphClient
+        .api(`/servicePrincipals/${servicePrincipalId}`)
+        .select('id,displayName,appId,tags,servicePrincipalType,appDisplayName')
+        .get();
+      
+      console.log(chalk.gray(`   App: ${servicePrincipal.displayName || servicePrincipal.appDisplayName}`));
+      console.log(chalk.gray(`   Type: ${servicePrincipal.servicePrincipalType}`));
+      console.log(chalk.gray(`   Tags: ${JSON.stringify(servicePrincipal.tags || [])}`));
+      
+      // Validate it's a gallery application (not custom)
+      if (servicePrincipal.servicePrincipalType !== 'Application') {
+        console.log(chalk.yellow('   ⚠️  Service principal type is not "Application"'));
+      }
+      
+      // Check if it's from a gallery template (gallery apps typically have specific tags)
+      const hasGalleryTag = (servicePrincipal.tags || []).some((tag: string) => 
+        tag.includes('Gallery') || tag.includes('Template') || tag.includes('WindowsAzureActiveDirectoryOnPremApp')
+      );
+      
+      if (!hasGalleryTag) {
+        console.log(chalk.yellow('   ⚠️  Application does not appear to be from the Azure gallery'));
+        console.log(chalk.yellow('   This may cause SCIM provisioning issues if it\'s a custom SAML app'));
+      }
+      
+      // Validate display name contains GitHub
+      const displayName = (servicePrincipal.displayName || servicePrincipal.appDisplayName || '').toLowerCase();
+      if (!displayName.includes('github')) {
+        console.log(chalk.yellow('   ⚠️  Application name does not contain "GitHub"'));
+      }
+      
+      // Check for synchronization template availability
+      console.log(chalk.gray('   Checking for SCIM provisioning support...'));
+      const templates = await this.graphClient
+        .api(`/servicePrincipals/${servicePrincipalId}/synchronization/templates`)
+        .get();
+      
+      if (!templates.value || templates.value.length === 0) {
+        console.log(chalk.red('   ❌ No synchronization templates found'));
+        console.log(chalk.yellow('   This application does not support SCIM provisioning'));
+        console.log(chalk.gray('   Ensure you used the "GitHub Enterprise Managed User" gallery app'));
+        throw new Error('No SCIM synchronization templates found. Please recreate using "GitHub Enterprise Managed User" gallery app.');
+      }
+      
+      console.log(chalk.green(`   ✅ Application validation passed (${templates.value.length} sync template(s) found)`));
+      
+    } catch (error: any) {
+      if (error.message.includes('No SCIM synchronization templates')) {
+        throw error; // Re-throw our specific error
+      }
+      throw new Error(`Failed to validate GitHub Enterprise application: ${error.message}`);
+    }  }
+
+  // Simplified SCIM provisioning method based on working version
   async configureSCIMProvisioning(servicePrincipalId: string, scimEndpoint: string, scimToken: string): Promise<void> {
     try {
       console.log(chalk.gray('   Configuring SCIM provisioning settings...'));
       
-      // First, verify the service principal still exists before making changes
-      try {
-        await this.graphClient
-          .api(`/servicePrincipals/${servicePrincipalId}`)
-          .select('id,displayName')
-          .get();
-        console.log(chalk.gray('   ✅ Service principal verified before SCIM configuration'));
-      } catch (verifyError: any) {
-        throw new Error(`Service principal not found before SCIM configuration: ${verifyError.message}`);
-      }
-
-      // Set the SCIM endpoint and authentication FIRST (before creating jobs)
+      // STRICT: Validate that we have the correct GitHub Enterprise application first
+      await this.validateGitHubEnterpriseApp(servicePrincipalId);
+      
+      // Set the SCIM endpoint and authentication
       console.log(chalk.gray('   Setting SCIM endpoint and authentication...'));
       await this.graphClient
         .api(`/servicePrincipals/${servicePrincipalId}/synchronization/secrets`)
@@ -805,20 +858,7 @@ export class AzureService {
             }
           ]
         });      
-      console.log(chalk.green('   ✅ SCIM endpoint and token configured'));
-
-      // Verify service principal still exists after setting secrets
-      try {
-        await this.graphClient
-          .api(`/servicePrincipals/${servicePrincipalId}`)
-          .select('id,displayName')
-          .get();
-        console.log(chalk.gray('   ✅ Service principal verified after secrets configuration'));
-      } catch (verifyError: any) {
-        throw new Error(`Service principal was deleted after setting SCIM secrets: ${verifyError.message}`);
-      }
-
-      // Get available synchronization templates for this service principal
+      console.log(chalk.green('   ✅ SCIM endpoint and token configured'));// Get available synchronization templates for this service principal
       console.log(chalk.gray('   Checking for synchronization templates...'));
       const templates = await this.graphClient
         .api(`/servicePrincipals/${servicePrincipalId}/synchronization/templates`)
@@ -826,13 +866,68 @@ export class AzureService {
 
       let templateId = null;
       if (templates.value && templates.value.length > 0) {
-        // Use the first available template (GitHub Enterprise should have one)        templateId = templates.value[0].id;
-        console.log(chalk.gray(`   Using synchronization template: ${templateId}`));
+        // STRICT: Validate that we have the correct template for GitHub Enterprise Managed User
+        console.log(chalk.gray(`   Found ${templates.value.length} synchronization template(s):`));
+        
+        // Log all available templates for debugging
+        templates.value.forEach((template: any, index: number) => {
+          console.log(chalk.gray(`     ${index + 1}. Template ID: ${template.id}`));
+          console.log(chalk.gray(`        Application ID: ${template.applicationId || 'Not specified'}`));
+          console.log(chalk.gray(`        Description: ${template.description || 'No description'}`));
+          console.log(chalk.gray(`        Metadata: ${JSON.stringify(template.metadata || {}, null, 2)}`));
+        });
+
+        // STRICT: Validate template selection
+        // For GitHub Enterprise Managed User, we should have specific template characteristics
+        let validTemplate = null;
+        
+        // Strategy 1: Look for template with GitHub-related metadata or description
+        validTemplate = templates.value.find((template: any) => {
+          const description = (template.description || '').toLowerCase();
+          const metadata = JSON.stringify(template.metadata || {}).toLowerCase();
+          return description.includes('github') || metadata.includes('github') || 
+                 description.includes('manageduser') || metadata.includes('manageduser');
+        });
+
+        // Strategy 2: If no GitHub-specific template found and we only have one template, 
+        // validate it's from the correct gallery app by checking context
+        if (!validTemplate && templates.value.length === 1) {
+          // Since we got here from the GitHub Enterprise Managed User gallery app,
+          // the single template should be the correct one
+          validTemplate = templates.value[0];
+          console.log(chalk.yellow('   ⚠️  Single template found - assuming it\'s correct since we\'re from the GitHub gallery app'));
+        }
+
+        // Strategy 3: If multiple templates and none are clearly GitHub-related, this is an error
+        if (!validTemplate && templates.value.length > 1) {
+          console.log(chalk.red('   ❌ Multiple sync templates found but none appear to be GitHub-specific'));
+          console.log(chalk.yellow('   This suggests the wrong gallery application was used.'));
+          console.log(chalk.gray('   Expected: GitHub Enterprise Managed User gallery app'));
+          throw new Error('Multiple sync templates found but none are GitHub-specific. Please recreate the app using the "GitHub Enterprise Managed User" gallery template.');
+        }
+
+        if (validTemplate) {
+          templateId = validTemplate.id;
+          console.log(chalk.green(`   ✅ Using validated synchronization template: ${templateId}`));
+          
+          // Additional validation
+          if (!templateId) {
+            console.log(chalk.yellow('   ⚠️  Template found but ID is null/undefined'));
+            console.log(chalk.gray(`   Template object: ${JSON.stringify(validTemplate, null, 2)}`));
+            throw new Error('Template ID is null - this indicates an issue with the gallery application template');
+          }
+        } else {
+          console.log(chalk.red('   ❌ No valid GitHub Enterprise synchronization template found'));
+          throw new Error('No GitHub Enterprise sync template found. Please recreate the application using the "GitHub Enterprise Managed User" gallery template.');
+        }
       } else {
-        console.log(chalk.yellow('   ⚠️  No synchronization templates found - this may be expected for custom applications'));
-        console.log(chalk.gray('   SCIM endpoint configured, but automatic provisioning jobs cannot be created'));
-        console.log(chalk.gray('   You can manually configure provisioning in the Azure Portal if needed'));
-        return; // Exit gracefully without creating jobs
+        console.log(chalk.red('   ❌ No synchronization templates found for this application'));
+        console.log(chalk.yellow('   This indicates the application does not support SCIM provisioning.'));
+        console.log(chalk.gray('   Possible causes:'));
+        console.log(chalk.gray('     1. Wrong gallery application was used (should be "GitHub Enterprise Managed User")'));
+        console.log(chalk.gray('     2. Application was manually created instead of from gallery'));
+        console.log(chalk.gray('     3. Application template is corrupted'));
+        throw new Error('No synchronization templates found. This application does not support SCIM provisioning.');
       }
 
       // Check if a job already exists
@@ -843,16 +938,6 @@ export class AzureService {
 
       if (existingJobs.value && existingJobs.value.length > 0) {
         console.log(chalk.green('   ✅ SCIM provisioning job already exists'));
-        
-        // Verify service principal still exists before updating job
-        try {
-          await this.graphClient
-            .api(`/servicePrincipals/${servicePrincipalId}`)
-            .select('id,displayName')
-            .get();
-        } catch (verifyError: any) {
-          throw new Error(`Service principal was deleted during job configuration: ${verifyError.message}`);
-        }
         
         // Update existing job to ensure it's configured correctly
         const jobId = existingJobs.value[0].id;
@@ -868,42 +953,21 @@ export class AzureService {
           });
         console.log(chalk.green('   ✅ SCIM provisioning job updated'));
       } else {
-        console.log(chalk.gray('   Creating new synchronization job...'));
-        
-        // Verify service principal still exists before creating job
-        try {
-          await this.graphClient
-            .api(`/servicePrincipals/${servicePrincipalId}`)
-            .select('id,displayName')
-            .get();
-        } catch (verifyError: any) {
-          throw new Error(`Service principal was deleted before creating job: ${verifyError.message}`);
-        }
-        
         // Create new synchronization job
+        console.log(chalk.gray('   Creating new synchronization job...'));
         await this.graphClient
           .api(`/servicePrincipals/${servicePrincipalId}/synchronization/jobs`)
           .post({
             templateId: templateId
           });
         console.log(chalk.green('   ✅ SCIM provisioning job created'));
-        
-        // Final verification that service principal still exists
-        try {
-          await this.graphClient
-            .api(`/servicePrincipals/${servicePrincipalId}`)
-            .select('id,displayName')
-            .get();
-          console.log(chalk.green('   ✅ Service principal verified after job creation'));
-        } catch (verifyError: any) {
-          throw new Error(`Service principal was deleted after creating synchronization job: ${verifyError.message}`);
-        }
       }
       
     } catch (error: any) {
       throw new Error(`Failed to configure SCIM provisioning: ${error.message}`);
     }
-  }  async testSCIMConnection(servicePrincipalId: string): Promise<boolean> {
+  }
+  async testSCIMConnection(servicePrincipalId: string): Promise<boolean> {
     try {
       console.log(chalk.gray('   Testing SCIM connection...'));
       

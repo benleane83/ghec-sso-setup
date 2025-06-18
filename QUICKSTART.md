@@ -29,16 +29,7 @@ This guide helps you set up GitHub Enterprise Cloud SAML SSO with Microsoft Entr
 
 ### Setup Process (15-20 minutes)
 
-#### Step 1: Authenticate with GitHub
-```bash
-ghec-sso auth login-pat
-```
-- You'll be prompted to create a Personal Access Token
-- Follow the link to GitHub settings
-- Grant these permissions: `admin:enterprise`, `admin:org`, `repo`
-- Copy and paste the token when prompted
-
-#### Step 2: Run the automated setup
+#### Step 1: Run the automated setup
 ```bash
 ghec-sso setup --enterprise my-company
 ```
@@ -48,7 +39,7 @@ ghec-sso setup --enterprise my-company
 ghec-sso setup --enterprise acme-corp
 ```
 
-#### Step 3: Complete GitHub configuration
+#### Step 2: Complete GitHub configuration
 The tool will:
 - ✅ Create and configure the Entra ID application automatically
 - ✅ Assign you as Enterprise Owner
@@ -60,11 +51,10 @@ The tool will:
 - Issuer (Entity ID)
 - Certificate
 
-#### Step 4: Set up user provisioning (optional)
-The tool will pause and ask if you want to configure SCIM provisioning:
+#### Step 3: Set up user provisioning (manual)
+The tool will prompt the user to perform the following manual steps
 - In GitHub, enable SAML SSO and get your SCIM token
-- Provide the token to the CLI
-- The tool will configure automatic user provisioning
+- Navigate to the Entra ID Application and enter the provided values to enable auto provisioning
 
 ### What the Tool Does
 
@@ -73,7 +63,6 @@ The tool will pause and ask if you want to configure SCIM provisioning:
 - ✅ Configures all SAML settings and URLs
 - ✅ Generates and configures certificates
 - ✅ Sets up user roles and permissions
-- ✅ Configures SCIM provisioning (optional)
 
 **Requires manual steps:**
 - 📋 Copy SAML values into GitHub Enterprise settings
@@ -102,7 +91,7 @@ ghec-sso auth debug -e my-company
 
 # Re-authenticate if needed
 ghec-sso auth logout
-ghec-sso auth login-pat
+ghec-sso auth login
 ```
 
 ### Getting Help
@@ -116,7 +105,6 @@ ghec-sso auth login-pat
 ⚠️ **Before enabling SSO:**
 - Test SAML authentication with a few users first
 - Ensure you have recovery access to GitHub Enterprise
-- Keep your Personal Access Token secure
 
 ⚠️ **After setup:**
 - Add users/groups to the Entra ID application
