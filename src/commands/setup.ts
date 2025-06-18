@@ -1,7 +1,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { AuthService } from '../services/auth';
-// import { GitHubService } from '../services/github';
 import { AzureService } from '../services/azure';
 import { ConfigManager } from '../utils/config';
 import { TemplateProcessor } from '../utils/template';
@@ -26,19 +25,15 @@ export const setupCommand = new Command('setup')
     try {
       // Validate authentication
       const authService = new AuthService();
-    //   const githubToken = authService.getStoredGitHubToken();
-      
-    //   if (!githubToken) {
-    //     console.log(chalk.red('❌ Not authenticated with GitHub. Run: ghec-sso auth login-pat'));
-    //     return;
-    //   }
 
       // Get configuration
       const configManager = new ConfigManager();
       let config = {
         enterprise: options.enterprise,
         domain: options.domain
-      };      // Prompt for missing configuration
+      };      
+      
+      // Prompt for missing configuration
       if (!config.enterprise) {
         const inquirer = await import('inquirer');
         
@@ -60,27 +55,11 @@ export const setupCommand = new Command('setup')
       console.log(chalk.gray(`   Domain: ${config.domain || 'common (default tenant)'}`));
       console.log(chalk.gray(`   Mode: ${options.plan ? 'PLAN' : 'LIVE'}\n`));
 
-    //   // Initialize services
-    //   const githubService = new GitHubService(githubToken);
-      
-    //   // Step 1: Validate GitHub Enterprise access
-    //   console.log(chalk.cyan('🔍 Step 1: Validating GitHub Enterprise access...'));
-    //   const enterpriseValidation = await githubService.validateEnterpriseAccessWithFallback(
-    //     config.enterprise,
-    //     options.force
-    //   );
-      
-    //   if (!enterpriseValidation.success && !options.force) {
-    //     console.log(chalk.red(`❌ ${enterpriseValidation.message}`));
-    //     return;
-    //   }
-    //   console.log(chalk.green(`✅ ${enterpriseValidation.message}\n`));
-      
       // We'll initialize Azure service after we get Azure credentials
       let azureService: AzureService | null = null;     
       
-      // Step 2: Get Azure credentials
-      console.log(chalk.cyan('🔍 Step 2: Getting Azure credentials...'));
+      // Step 1: Get Azure credentials
+      console.log(chalk.cyan('🔍 Step 1: Getting Azure credentials...'));
       try {
         const azureCredential = await authService.authenticateAzure(config.domain);
         azureService = new AzureService(azureCredential, config.domain);
@@ -92,8 +71,8 @@ export const setupCommand = new Command('setup')
         return;
       }
 
-      // Step 3: Create/Configure Entra ID Enterprise Application
-      console.log(chalk.cyan('🏢 Step 3: Setting up Entra ID Enterprise Application...'));
+      // Step 2: Create/Configure Entra ID Enterprise Application
+      console.log(chalk.cyan('🏢 Step 2: Setting up Entra ID Enterprise Application...'));
       
       const appConfig = {
         displayName: `GitHub Enterprise SSO - ${config.enterprise}`,
@@ -180,18 +159,18 @@ export const setupCommand = new Command('setup')
           
           console.log(chalk.green('✅ Entra ID Enterprise Application created\n'));
           
-          // Step 4: Assign current user to the application
-          console.log(chalk.cyan('👤 Step 4: Assigning current user to application...'));
+          // Step 3: Assign current user to the application
+          console.log(chalk.cyan('👤 Step 3: Assigning current user to application...'));
           await azureService!.assignCurrentUserToApp(entraApp.id);
           console.log(chalk.green('✅ Current user assigned to application\n'));
           
-          // Step 5: Get SAML configuration details
-          console.log(chalk.cyan('⚙️  Step 5: Getting SAML configuration details...'));
+          // Step 4: Get SAML configuration details
+          console.log(chalk.cyan('⚙️  Step 4: Getting SAML configuration details...'));
           const certificate = await azureService!.downloadSAMLCertificate(entraApp.id);
           
           console.log(chalk.green('✅ SAML configuration completed\n'));
           
-          // Step 6: Output manual configuration details
+          // Step 5: Output manual configuration details
           console.log(chalk.green.bold('🎉 Entra ID Setup Complete! Manual GitHub Configuration Required:\n'));
           
           console.log(chalk.blue('📋 GitHub Enterprise SAML Configuration:'));
@@ -209,8 +188,7 @@ export const setupCommand = new Command('setup')
           // Open GitHub SAML configuration page
           const githubSamlUrl = `https://github.com/enterprises/${config.enterprise}/settings/saml_provider/edit`;
           console.log(chalk.cyan('🌐 Opening GitHub Enterprise SAML configuration page...'));
-          
-          try {
+            try {
             await open(githubSamlUrl);
             console.log(chalk.green('✅ Browser opened to GitHub SAML settings'));
           } catch (openError) {
@@ -222,46 +200,69 @@ export const setupCommand = new Command('setup')
           console.log(chalk.gray('1. In the opened GitHub page, click "Enable SAML authentication"'));
           console.log(chalk.gray('2. Enter the Sign-On URL, Issuer, and Certificate from above'));
           console.log(chalk.gray('3. Test the SAML connection'));
-          console.log(chalk.gray('4. Enable "Require SAML SSO authentication"'));
-          console.log(chalk.gray('5. After SAML is working, refer to the SCIM instructions below to enable user provisioning'));            // Manual SCIM setup instructions (automated setup temporarily disabled)
-          
-          // TODO: To re-enable interactive SCIM setup, replace this section with:
-          // await setupInteractiveSCIM(azureService!, entraApp, config, appConfig);
+          console.log(chalk.gray('4. Enable "Require SAML SSO authentication"'));          
+          console.log(chalk.gray('5. Save the SAML configuration\n'));
 
-          console.log(chalk.yellow('📋 Manual SCIM Configuration Instructions:\n'));
+          // Single prompt for SAML completion and SCIM setup
+          const inquirer = await import('inquirer');
           
-          // Display the SCIM endpoint for the user
-          const scimEndpoint = `https://api.github.com/scim/v2/enterprises/${config.enterprise}`;
-    
-          console.log(chalk.yellow('📝 Step-by-Step SCIM Setup:'));
-          console.log(chalk.gray('1. Generate a SCIM personal access token:'));
-          console.log(chalk.gray('   • Go to GitHub.com > Settings > Developer settings > Personal access tokens'));
-          console.log(chalk.gray('   • Click "Generate new token (classic)"'));
-          console.log(chalk.gray('   • Select scopes: scim:enterprise (under admin:enterprise)'));
-          console.log(chalk.gray('   • Copy the generated token\n'));
-          
-          console.log(chalk.yellow('🏢 Configure in Entra ID:'));
-          console.log(chalk.gray('2 Go to Azure Portal > Enterprise Applications'));
-          console.log(chalk.gray(`3. Find and open "${appConfig.displayName}"`));
-          console.log(chalk.gray('4. Click "Provisioning" in the left menu'));
-          console.log(chalk.gray('5. Click "Get started"'));
-          console.log(chalk.gray('6. Set Provisioning Mode to "Automatic"'));
-          console.log(chalk.gray('7. In Admin Credentials section:'));
-          console.log(chalk.gray(`    • Tenant URL: ${scimEndpoint}`));
-          console.log(chalk.gray('    • Secret Token: [Paste your GitHub SCIM token]'));
-          console.log(chalk.gray('8. Click "Test Connection" to verify'));
-          console.log(chalk.gray('9. Configure Settings as needed'));
-          console.log(chalk.gray('10. Click "Save" and then "Start provisioning"\n'));
-          
-          console.log(chalk.yellow('⚠️  Important Notes:'));
-          console.log(chalk.gray('• Only configure SCIM after SAML SSO is fully working'));
-          console.log(chalk.gray('• Test with a small group of users first'));
-          console.log(chalk.gray('• Monitor the first synchronization cycle for any issues\n'));
-          
-          console.log(chalk.green.bold('🎉 Setup Complete!'));
-          console.log(chalk.gray('Once these steps are completed, your GitHub Enterprise SAML SSO with Entra ID will now be configured.'));
-          console.log(chalk.gray('Users can sign in using their organizational credentials.\n'));
-          console.log(chalk.gray('Please add additional Entra users or groups to your app as required.\n'));
+          const { proceedWithScim } = await inquirer.default.prompt([{
+            type: 'confirm',
+            name: 'proceedWithScim',
+            message: 'Have you completed the SAML SSO configuration and want to proceed with SCIM provisioning setup?',
+            default: false
+          }]);
+
+          if (proceedWithScim) {
+              console.log(chalk.cyan('\n🔧 Setting up SCIM Provisioning...\n'));
+              
+              // Open GitHub SCIM token creation page
+              const tokenUrl = `https://github.com/settings/tokens/new?scopes=scim:enterprise&description=SCIM%20Token%20for%20${config.enterprise}`;
+              console.log(chalk.cyan('🌐 Opening GitHub SCIM Token creation page...'));
+              
+              try {
+                await open(tokenUrl);
+                console.log(chalk.green('✅ Browser opened to GitHub token creation page'));
+              } catch (openError) {
+                console.log(chalk.yellow('⚠️  Could not auto-open browser'));
+                console.log(chalk.gray(`   Please manually visit: ${tokenUrl}`));
+              }
+
+              console.log(chalk.yellow('📋 SCIM Token Generation:\n'));
+              console.log(chalk.gray('1. In the opened GitHub page:'));
+              console.log(chalk.gray('   • The token description and scopes are pre-filled'));
+              console.log(chalk.gray('   • Click "Generate token"'));
+              console.log(chalk.gray('   • Copy the generated token (you won\'t see it again)\n'));
+              
+              console.log(chalk.yellow('📋 Manual SCIM Configuration Instructions:\n'));
+              
+              // Display the SCIM endpoint for the user
+              const scimEndpoint = `https://api.github.com/scim/v2/enterprises/${config.enterprise}`;
+        
+              console.log(chalk.yellow('� Step-by-Step SCIM Setup:'));
+              console.log(chalk.gray('2. Now configure SCIM in Entra ID:'));
+              console.log(chalk.yellow('🏢 Configure in Entra ID:'));
+              console.log(chalk.gray('   • Go to Azure Portal > Enterprise Applications'));
+              console.log(chalk.gray(`   • Find and open "${appConfig.displayName}"`));
+              console.log(chalk.gray('   • Click "Provisioning" in the left menu'));
+              console.log(chalk.gray('   • Click "Get started"'));
+              console.log(chalk.gray('   • Set Provisioning Mode to "Automatic"'));
+              console.log(chalk.gray('   • In Admin Credentials section:'));
+              console.log(chalk.gray(`     ○ Tenant URL: ${scimEndpoint}`));
+              console.log(chalk.gray('     ○ Secret Token: [Paste your GitHub SCIM token from above]'));
+              console.log(chalk.gray('   • Click "Test Connection" to verify'));
+              console.log(chalk.gray('   • Configure Settings as needed'));
+              console.log(chalk.gray('   • Click "Save" and then "Start provisioning"\n'));
+              
+              console.log(chalk.yellow('⚠️  Important Notes:'));
+              console.log(chalk.gray('• Only configure SCIM after SAML SSO is fully working'));
+              console.log(chalk.gray('• Test with a small group of users first'));
+              console.log(chalk.gray('• Monitor the first synchronization cycle for any issues\n'));          
+            } 
+            else {
+              console.log(chalk.yellow('\n📋 Setup instructions provided.'));
+              console.log(chalk.gray('Configure SCIM manually using the Azure Portal\n'));
+          }
         } 
         catch (error: any) {
           // Check if this is a user cancellation - don't show fallback instructions
@@ -274,16 +275,15 @@ export const setupCommand = new Command('setup')
           console.log(chalk.red(`❌ Setup failed: ${error.message}`));
           console.log(chalk.yellow('\n💡 Manual Setup Instructions:'));
           console.log(chalk.gray('1. Go to Azure Portal > Enterprise Applications'));
-          console.log(chalk.gray('2. Click "New application" > "Create your own application"'));
-          console.log(chalk.gray(`3. Name it "${appConfig.displayName}"`));
-          console.log(chalk.gray('4. Select "Integrate any other application you don\'t find in the gallery"'));
-          console.log(chalk.gray('5. Go to "Single sign-on" > "SAML"'));
-          console.log(chalk.gray('6. Configure:'));
+          console.log(chalk.gray('2. Search for the "GitHub Enterprise Managed User" application in the gallery"'));
+          console.log(chalk.gray(`3. Name your application "${appConfig.displayName}", and click "Create"`));
+          console.log(chalk.gray('4. Go to "Single sign-on" > "SAML"'));
+          console.log(chalk.gray('5. Configure:'));
           console.log(chalk.gray(`   - Identifier (Entity ID): ${appConfig.entityId}`));
           console.log(chalk.gray(`   - Reply URL: ${appConfig.replyUrl}`));
           console.log(chalk.gray(`   - Sign on URL: ${appConfig.signOnUrl}`));
-          console.log(chalk.gray('7. Download the certificate and copy the Login URL'));
-          console.log(chalk.gray('8. Configure in GitHub Enterprise SAML settings'));
+          console.log(chalk.gray('6. Download the certificate and copy the Login URL'));
+          console.log(chalk.gray('7. Configure in GitHub Enterprise SAML settings'));
         }
       }
 

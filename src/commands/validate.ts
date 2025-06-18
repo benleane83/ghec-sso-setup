@@ -2,7 +2,6 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { AuthService } from '../services/auth';
-import { GitHubService } from '../services/github';
 import { AzureService } from '../services/azure';
 import { ConfigManager } from '../utils/config';
 
@@ -27,18 +26,17 @@ export const validateCommand = new Command('validate')
         console.log(chalk.red(`❌ No configuration found for enterprise: ${enterpriseName}`));
         console.log(chalk.yellow('Run: ghec-sso setup'));
         return;
-      }      // Initialize services
+      }      
+      
+      // Initialize services
       const authService = new AuthService();
       const spinner = ora('Authenticating...').start();
-      
-    //   const githubToken = await authService.authenticateGitHub();
       
       // Use domain from options if provided, otherwise fall back to config, or use common
       const tenantDomain = options.domain || config.azure?.tenantDomain;
       
       const azureCredential = await authService.authenticateAzure(tenantDomain);
       
-    //   const githubService = new GitHubService(githubToken);
       const azureService = new AzureService(azureCredential, tenantDomain || 'common');
       
       spinner.succeed('Authentication successful');
@@ -65,14 +63,6 @@ export const validateCommand = new Command('validate')
 
 async function runValidationChecks(azureService: any, config: any) {
   const checks = [
-    // {
-    //   name: 'GitHub Enterprise Access',
-    //   test: () => githubService.validateEnterpriseAccess(config.github.enterpriseSlug)
-    // },
-    // {
-    //   name: 'GitHub SSO Configuration',
-    //   test: () => githubService.validateSSOConfig(config.github.enterpriseSlug)
-    // },
     {
       name: 'Entra ID Application',
       test: () => azureService.validateEnterpriseApp()

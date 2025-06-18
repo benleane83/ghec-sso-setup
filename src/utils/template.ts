@@ -57,6 +57,7 @@ export class TemplateProcessor {
       SIGN_ON_URL: `https://github.com/enterprises/${enterpriseName}/sso`,
       LOGOUT_URL: `https://github.com/enterprises/${enterpriseName}/saml/sls`,
       GITHUB_SAML_URL: `https://github.com/enterprises/${enterpriseName}/settings/saml_provider/edit`,
+      GITHUB_TOKEN_URL: `https://github.com/settings/tokens/new?scopes=scim:enterprise&description=SCIM%20Token`,
       SCIM_ENDPOINT: `https://api.github.com/scim/v2/enterprises/${enterpriseName}/`
     });
 

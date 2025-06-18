@@ -1170,7 +1170,8 @@ export class AzureService {
 
   /**
    * Validates the SAML configuration for GitHub Enterprise applications
-   */  async validateSAMLConfig(): Promise<{ success: boolean; message: string }> {
+   */  
+  async validateSAMLConfig(): Promise<{ success: boolean; message: string }> {
     try {
       // Get all service principals and filter client-side
       const servicePrincipals = await this.graphClient
@@ -1267,7 +1268,8 @@ export class AzureService {
 
   /**
    * Validates the SAML signing certificates for GitHub Enterprise applications
-   */  async validateCertificate(): Promise<{ success: boolean; message: string }> {
+   */  
+  async validateCertificate(): Promise<{ success: boolean; message: string }> {
     try {
       // Get all service principals and filter client-side
       const servicePrincipals = await this.graphClient
@@ -1294,7 +1296,8 @@ export class AzureService {
           success: false,
           message: 'No GitHub Enterprise applications with SAML SSO found'
         };
-      }      const certificateResults = [];
+      }      
+      const certificateResults = [];
 
       for (const sp of githubSamlApps) {
         try {

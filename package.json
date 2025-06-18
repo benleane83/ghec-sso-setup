@@ -1,6 +1,6 @@
 {
   "name": "ghec-sso-cli",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "CLI tool to automate GitHub Enterprise Cloud SSO setup with Entra ID",
   "main": "dist/index.js",
   "bin": {
@@ -46,6 +46,7 @@
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
     "cpx": "^1.5.0",
+    "esbuild": "^0.25.5",
     "eslint": "^8.56.0",
     "jest": "^29.7.0",
     "pkg": "^5.8.1",

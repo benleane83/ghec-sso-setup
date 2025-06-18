@@ -1,5 +1,6 @@
 import { Octokit } from '@octokit/rest';
 import chalk from 'chalk';
+import * as packageJson from '../../package.json';
 // Use node-fetch for Node.js compatibility if built-in fetch is not available
 let fetch: any;
 try {
@@ -291,12 +292,11 @@ export class GitHubService {
   }
   async directAPIRequest(endpoint: string, method: string = 'GET', body?: any): Promise<any> {
     const url = `https://api.github.com${endpoint}`;
-    
-    const headers: Record<string, string> = {
+      const headers: Record<string, string> = {
       'Authorization': `Bearer ${this.token}`,
       'Accept': 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'ghec-sso-cli/1.0.0'
+      'User-Agent': `ghec-sso-cli/${packageJson.version}`
     };
 
     if (body) {
@@ -391,12 +391,11 @@ export class GitHubService {
     ];
 
     for (const acceptHeader of acceptHeaders) {
-      try {        console.log(chalk.gray(`   Trying with Accept: ${acceptHeader}`));
-        const response = await fetch(`https://api.github.com/enterprises/${enterpriseSlug}`, {
+      try {        console.log(chalk.gray(`   Trying with Accept: ${acceptHeader}`));        const response = await fetch(`https://api.github.com/enterprises/${enterpriseSlug}`, {
           headers: {
             'Authorization': `Bearer ${this.token}`,
             'Accept': acceptHeader,
-            'User-Agent': 'ghec-sso-cli/1.0.0'
+            'User-Agent': `ghec-sso-cli/${packageJson.version}`
           }
         });
         
