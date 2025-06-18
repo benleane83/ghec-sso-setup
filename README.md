@@ -1,5 +1,9 @@
 # GitHub Enterprise Cloud SSO CLI
 
+[![Latest Release](https://img.shields.io/github/v/release/benleane83/ghec-sso-setup?style=for-the-badge&logo=github)](https://github.com/benleane83/ghec-sso-setup/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/benleane83/ghec-sso-setup/total?style=for-the-badge&logo=github)](https://github.com/benleane83/ghec-sso-setup/releases)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/benleane83/ghec-sso-setup/build-release.yml?style=for-the-badge&logo=github-actions)](https://github.com/benleane83/ghec-sso-setup/actions)
+
 A command-line tool to automate GitHub Enterprise Cloud SAML SSO setup with Microsoft Entra ID.
 
 ## 🚀 Features
@@ -16,7 +20,9 @@ This tool automates the complex process described in [Microsoft's GitHub Enterpr
 
 ## Installation
 
-### 🚀 Method 1: Standalone Executable (Recommended - No Node.js Required!)
+### 🚀 Method 1: Standalone Executable (Recommended)
+
+**📦 [Download Latest Release →](https://github.com/benleane83/ghec-sso-setup/releases/latest)**
 
 1. Go to [Releases](https://github.com/benleane83/ghec-sso-setup/releases/latest)
 2. Download `ghec-sso.exe`
@@ -190,6 +196,7 @@ The CLI uses different authentication methods optimized for enterprise access:
 ### GitHub Enterprise Types
 - ✅ **GitHub Enterprise Cloud** - Fully supported
 - ✅ **Trial Enterprises** - Fully supported
+- ❌ **GitHub Enterprise Server*** - Not supported
 - ❌ **Organizations** - Not supported (use organization SAML instead)
 
 ### Security Considerations
