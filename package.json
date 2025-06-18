@@ -1,6 +1,6 @@
 {
   "name": "ghec-sso-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CLI tool to automate GitHub Enterprise Cloud SSO setup with Entra ID",
   "main": "dist/index.js",
   "bin": {
