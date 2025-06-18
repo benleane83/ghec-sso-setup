@@ -27,7 +27,7 @@ jobs:
       run: npm run build
 
     - name: Package executables
-      run: npm run package:all
+      run: npm run package:win
 
     - name: Create checksums
       run: |
@@ -56,7 +56,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          bin/ghec-sso-cli.exe
+          bin/ghec-sso.exe
           bin/checksums.txt
         generate_release_notes: true
         draft: false
