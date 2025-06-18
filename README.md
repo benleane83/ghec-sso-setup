@@ -11,10 +11,10 @@ A command-line tool to automate GitHub Enterprise Cloud SAML SSO setup with Micr
 - 🏢 **Automated Entra ID Setup**: Creates and configures GitHub Enterprise Managed User application
 - 🔧 **SAML Configuration**: Automates SAML settings, certificates, and URLs in Entra ID
 - 👥 **User Assignment**: Automatically assigns current user with Enterprise Owner role
+- 📋 **GitHub SAML Activation**: Provides exact values and opens GitHub SAML settings page
 - 🔄 **SCIM Provisioning**: Guides user to configure automatic user provisioning (currently manual)
-- 📋 **Manual Guidance**: Provides exact values and opens GitHub SAML settings page
 - ✅ **Validation**: Built-in checks for enterprise access and prerequisites
-- 🛡️ **Safe Setup**: Dry-run mode and confirmation prompts for critical actions
+- 🛡️ **Safe Setup**: Plan mode and confirmation prompts for critical actions
 
 This tool automates the complex process described in [Microsoft's GitHub Enterprise SSO documentation](https://learn.microsoft.com/en-us/entra/identity/saas-apps/github-tutorial). Always verify your configuration in both GitHub and Entra ID admin portals after setup.
 
@@ -96,7 +96,7 @@ ghec-sso setup [options]
 Options:
   -e, --enterprise <name>   GitHub Enterprise name (e.g. for /enterprises/my-company, use my-company)
   -d, --domain <domain>     Organization domain (optional, e.g. company.onmicrosoft.com)
-  --dry-run                 Show what would be done without making changes
+  --plan                    Generate a HTML plan document with customized instructions for configuration
 ```
 
 **What it does:**
@@ -187,7 +187,7 @@ The CLI uses different authentication methods optimized for enterprise access:
    - Certificate (Base64)
 
 ### Manual SCIM Provisioning:
-11. 🔄 **Configure SCIM provisioning** (currently manual):
+11. 🔄 **Configure SCIM provisioning**:
     - Auto-generates SCIM endpoint: `https://api.github.com/scim/v2/enterprises/{enterprise}/`
     - Prompts user to create a SCIM token, and enable provisioning on the Entra ID app
 
@@ -196,7 +196,7 @@ The CLI uses different authentication methods optimized for enterprise access:
 ### GitHub Enterprise Types
 - ✅ **GitHub Enterprise Cloud** - Fully supported
 - ✅ **Trial Enterprises** - Fully supported
-- ❌ **GitHub Enterprise Server*** - Not supported
+- ❌ **GitHub Enterprise Server** - Not supported
 - ❌ **Organizations** - Not supported (use organization SAML instead)
 
 ### Security Considerations
@@ -240,31 +240,12 @@ ghec-sso auth login
 - Check tenant settings allow enterprise app creation
 - Try manual creation if automated approach fails
 
-## Development
-
-```bash
-# Clone and install dependencies
-git clone <repository>
-cd ghec-sso-setup
-npm install
-
-# Build the project
-npm run build
-
-# Run in development mode  
-npm run dev -- auth status
-
-# Test specific command
-npm run dev -- setup --dry-run -e test -d test.com
-```
-
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+4. Submit a pull request
 
 ## License
 
@@ -275,12 +256,5 @@ MIT License - see LICENSE file for details.
 This tool handles sensitive authentication data:
 - 🔑 **Azure tokens** are temporary and not persisted
 - 📜 **SAML certificates** are only displayed, not stored
-- 🚫 **No data is sent to external services**
-
-**Best Practices:**
-- Use dedicated PATs with minimal required scopes
-- Run `ghec-sso auth logout` when finished
-- Regularly rotate PATs and SAML certificates
-- Verify all changes in admin portals
 
 ---
