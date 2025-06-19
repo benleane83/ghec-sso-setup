@@ -12,6 +12,7 @@ A command-line tool to automate GitHub Enterprise Cloud SSO setup with Microsoft
 - 🔧 **SAML Configuration**: Automates SAML settings, certificates, and URLs in Entra ID
 - 👥 **User Assignment**: Automatically assigns current user with Enterprise Owner role
 - 📋 **GitHub SAML Activation**: Provides exact values and opens GitHub SAML settings page
+- 📋 **OIDC Mode**: Provides instructions to enable OIDC SSO (semi-manual)
 - 🔄 **SCIM Provisioning**: Guides user to configure automatic user provisioning (currently manual)
 - ✅ **Validation**: Built-in checks for enterprise access and prerequisites
 - 🛡️ **Safe Setup**: Plan mode and confirmation prompts for critical actions
@@ -97,6 +98,9 @@ Options:
   -e, --enterprise <name>   GitHub Enterprise name (e.g. for /enterprises/my-company, use my-company)
   -d, --domain <domain>     Organization domain (optional, e.g. company.onmicrosoft.com)
   --plan                    Generate a HTML plan document with customized instructions for configuration
+  --plan-output <path>      Custom output path for the setup plan (only with --plan)
+  --ssoType <type>          SSO protocol type: saml (default) or oidc
+
 ```
 
 **What it does:**
@@ -168,7 +172,7 @@ The CLI uses different authentication methods optimized for enterprise access:
 
 ## What the Setup Process Does
 
-### Automated Entra ID Configuration:
+### Automated SAML Configuration in Entra ID:
 1. 🔍 **Finds GitHub Enterprise Managed User template** in application gallery
 2. 🏢 **Creates Enterprise Application** with proper naming
 3. ⚙️ **Configures SAML settings:**
@@ -178,13 +182,17 @@ The CLI uses different authentication methods optimized for enterprise access:
 4. 🔐 **Generates SAML signing certificate**
 5. 👤 **Assigns current user with Enterprise Owner role**
 6. 📋 **Extracts SAML configuration values**
-
-### Manual GitHub Configuration:
 7. 🌐 **Opens GitHub Enterprise SAML settings page** automatically
 8. 📋 **Provides exact values** to copy into GitHub:
    - Sign-On URL
    - Issuer (Entity ID)  
    - Certificate (Base64)
+
+**OR**
+
+### Semi-Manual OIDC Configuration in Entra ID:
+1. 🌐 **Opens GitHub OIDC SSO configuration page** automatically
+2. 🏢 **Prompts user to complete OIDC link**
 
 ### Manual SCIM Provisioning:
 11. 🔄 **Configure SCIM provisioning**:
@@ -208,16 +216,6 @@ The CLI uses different authentication methods optimized for enterprise access:
 ⚠️ **After setup:**
 - Add additional users/groups to the Entra ID application
 - Assign Copilot seats to users in GitHub if required
-
-## Configuration Storage
-
-Local configuration is stored securely:
-- **Windows**: `%APPDATA%\ghec-sso-cli\config.json`
-- **macOS**: `~/Library/Preferences/ghec-sso-cli/config.json`
-- **Linux**: `~/.config/ghec-sso-cli/config.json`
-
-Contains:
-- Enterprise configurations and last setup status
 
 ## Troubleshooting
 

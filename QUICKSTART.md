@@ -86,9 +86,6 @@ npm --version
 # Check your authentication status
 ghec-sso auth status
 
-# Debug enterprise access
-ghec-sso auth debug -e my-company
-
 # Re-authenticate if needed
 ghec-sso auth logout
 ghec-sso auth login

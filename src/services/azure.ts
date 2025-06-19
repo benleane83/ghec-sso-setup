@@ -31,11 +31,12 @@ export class AzureService {
     });
   }
 
-  async createGitHubEnterpriseApp(enterpriseName: string): Promise<EntraApp> {
+  async createGitHubEnterpriseApp(enterpriseName: string, ssoType: 'saml' | 'oidc' = 'saml'): Promise<EntraApp> {
     try {
-      console.log(chalk.gray('   Step 1: Checking for existing GitHub Enterprise applications...'));
-        // First, check if there's already a GitHub Enterprise app for this enterprise
-      const existingApp = await this.findExistingGitHubApp(enterpriseName);
+      console.log(chalk.gray('   Step 1: Checking for existing GitHub Enterprise applications...'));     
+      
+      // First, check if there's already a GitHub Enterprise app for this enterprise
+      const existingApp = await this.findExistingGitHubApp(enterpriseName, ssoType);
       if (existingApp) {
         console.log(chalk.yellow(`\n🔍 Found existing GitHub Enterprise application:`));
         console.log(chalk.gray(`   Name: ${existingApp.displayName}`));
@@ -49,19 +50,28 @@ export class AzureService {
           message: 'Do you want to reuse this existing application?',
           default: true
         }]);
-        
-        if (reuseApp) {
+          if (reuseApp) {
           console.log(chalk.green('   ✅ Reusing existing application...'));
           
           // Get tenant ID for URLs
           const tenantId = await this.getTenantId();
           
-          return {
-            id: existingApp.id,
-            appId: existingApp.appId,
-            ssoUrl: `https://login.microsoftonline.com/${tenantId}/saml2`,
-            entityId: `https://sts.windows.net/${tenantId}/`
-          };        } else {
+          if (ssoType === 'oidc') {
+            return {
+              id: existingApp.id,
+              appId: existingApp.appId,
+              ssoUrl: `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`,
+              entityId: `https://sts.windows.net/${tenantId}/`
+            };
+          } else {
+            return {
+              id: existingApp.id,
+              appId: existingApp.appId,
+              ssoUrl: `https://login.microsoftonline.com/${tenantId}/saml2`,
+              entityId: `https://sts.windows.net/${tenantId}/`
+            };
+          }
+        } else {
           console.log(chalk.red('\n❌ Cannot proceed without reusing existing application.'));
           console.log(chalk.yellow('To avoid conflicts, you must either:'));
           console.log(chalk.gray('1. Choose to reuse the existing application, or'));
@@ -72,11 +82,10 @@ export class AzureService {
           throw error;
         }
       }
-      
-      console.log(chalk.gray('   Step 2: Finding GitHub Enterprise template in gallery...'));
+        console.log(chalk.gray(`   Step 2: Finding GitHub Enterprise ${ssoType.toUpperCase()} template in gallery...`));
       
       // Step 1: Find GitHub Enterprise template in the gallery
-      const template = await this.findGitHubGalleryApp();
+      const template = await this.findGitHubGalleryApp(ssoType);
       
       if (template) {
         console.log(chalk.gray(`   Step 2: Instantiating ${template.displayName}...`));
@@ -85,92 +94,119 @@ export class AzureService {
         const instantiateResponse = await this.graphClient
           .api(`/applicationTemplates/${template.id}/instantiate`)
           .post({
-            displayName: `GitHub Enterprise SSO - ${enterpriseName}`
-          });        
-          
+            displayName: `GitHub Enterprise ${ssoType.toUpperCase()} SSO - ${enterpriseName}`
+          });
+        
         const applicationId = instantiateResponse.application.id;
         let servicePrincipalId = instantiateResponse.servicePrincipal.id;
-        const appId = instantiateResponse.application.appId;console.log(chalk.gray('   Step 3: Configuring SAML SSO mode...'));
-        
-        // Add delay to ensure service principal is fully created
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        
-        // Step 3: Set SAML as the SSO mode with retry logic
-        let retryCount = 0;
-        const maxRetries = 3;
-        
-        while (retryCount < maxRetries) {
-          try {
-            await this.graphClient
-              .api(`/servicePrincipals/${servicePrincipalId}`)
-              .patch({
-                preferredSingleSignOnMode: 'saml'
-              });
-            break; // Success, exit retry loop
-          } catch (error: any) {
-            retryCount++;
-            console.log(chalk.yellow(`   ⚠️  Attempt ${retryCount}/${maxRetries} failed: ${error.message}`));
-            
-            if (retryCount >= maxRetries) {
-              console.log(chalk.yellow('   Trying alternative approach to find service principal...'));
+        const appId = instantiateResponse.application.appId;
+
+        if (ssoType === 'saml') {
+          console.log(chalk.gray('   Step 3: Configuring SAML SSO mode...'));
+          
+          // Add delay to ensure service principal is fully created
+          await new Promise(resolve => setTimeout(resolve, 4000));
+          
+          // Step 3: Set SAML as the SSO mode with retry logic
+          let retryCount = 0;
+          const maxRetries = 3;
+          
+          while (retryCount < maxRetries) {
+            try {
+              await this.graphClient
+                .api(`/servicePrincipals/${servicePrincipalId}`)
+                .patch({
+                  preferredSingleSignOnMode: 'saml'
+                });
+              break; // Success, exit retry loop
+            } catch (error: any) {
+              retryCount++;
+              console.log(chalk.yellow(`   ⚠️  Attempt ${retryCount}/${maxRetries} failed: ${error.message}`));
               
-              // Alternative: search for the service principal by app ID
-              const servicePrincipals = await this.graphClient
-                .api('/servicePrincipals')
-                .filter(`appId eq '${appId}'`)
-                .get();
+              if (retryCount >= maxRetries) {
+                console.log(chalk.yellow('   Trying alternative approach to find service principal...'));
                 
-              if (servicePrincipals.value && servicePrincipals.value.length > 0) {
-                const alternativeSpId = servicePrincipals.value[0].id;
-                console.log(chalk.gray(`   Found service principal with alternative ID: ${alternativeSpId}`));
-                
-                await this.graphClient
-                  .api(`/servicePrincipals/${alternativeSpId}`)
-                  .patch({
-                    preferredSingleSignOnMode: 'saml'
-                  });
+                // Alternative: search for the service principal by app ID
+                const servicePrincipals = await this.graphClient
+                  .api('/servicePrincipals')
+                  .filter(`appId eq '${appId}'`)
+                  .get();
                   
-                // Update the ID for subsequent calls
-                servicePrincipalId = alternativeSpId;
-                break;
-              } else {
-                throw new Error(`Failed to configure SAML SSO mode after ${maxRetries} attempts: ${error.message}`);
+                if (servicePrincipals.value && servicePrincipals.value.length > 0) {
+                  const alternativeSpId = servicePrincipals.value[0].id;
+                  console.log(chalk.gray(`   Found service principal with alternative ID: ${alternativeSpId}`));
+                  
+                  await this.graphClient
+                    .api(`/servicePrincipals/${alternativeSpId}`)
+                    .patch({
+                      preferredSingleSignOnMode: 'saml'
+                    });
+                    
+                  // Update the ID for subsequent calls
+                  servicePrincipalId = alternativeSpId;
+                  break;
+                } else {
+                  throw new Error(`Failed to configure SAML SSO mode after ${maxRetries} attempts: ${error.message}`);
+                }
               }
+              
+              // Wait before retry
+              await new Promise(resolve => setTimeout(resolve, 2000));
             }
-            
-            // Wait before retry
-            await new Promise(resolve => setTimeout(resolve, 2000));
           }
-        }        console.log(chalk.gray('   Step 4: Configuring SAML URLs...'));
+          
+          console.log(chalk.gray('   Step 4: Configuring SAML URLs...'));
+          
+          // Step 4: Configure SAML URLs for the application - do this AFTER certificate creation
+          // We'll configure this later in configureSAMLSettings to avoid conflicts
+          
+          console.log(chalk.gray('   Step 5: Creating signing certificate...'));
+          
+          // Step 5: Create a token signing certificate
+          const certificateResponse = await this.graphClient
+            .api(`/servicePrincipals/${servicePrincipalId}/addTokenSigningCertificate`)
+            .post({
+              displayName: `CN=GitHub-${enterpriseName}`,
+              endDateTime: new Date(Date.now() + 3 * 365 * 24 * 60 * 60 * 1000).toISOString() // 3 years from now
+            });
+        } else {
+          console.log(chalk.gray('   Step 3: Configuring OIDC mode...'));
+          
+          // Add delay to ensure service principal is fully created
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          
+          // For OIDC, we don't need to set SAML mode or create certificates
+          // The OIDC template handles authentication configuration automatically
+          console.log(chalk.green('   ✅ OIDC configuration completed (managed automatically)'));
+        }        
         
-        // Step 4: Configure SAML URLs for the application - do this AFTER certificate creation
-        // We'll configure this later in configureSAMLSettings to avoid conflicts
-        
-        console.log(chalk.gray('   Step 5: Creating signing certificate...'));
-        
-        // Step 5: Create a token signing certificate
-        const certificateResponse = await this.graphClient
-          .api(`/servicePrincipals/${servicePrincipalId}/addTokenSigningCertificate`)
-          .post({
-            displayName: `CN=GitHub-${enterpriseName}`,
-            endDateTime: new Date(Date.now() + 3 * 365 * 24 * 60 * 60 * 1000).toISOString() // 3 years from now
-          });        // Get tenant ID for entity ID
+        // Get tenant ID for entity ID
         const tenantId = await this.getTenantId();
         
-        return {
-          id: servicePrincipalId,
-          appId: appId,
-          ssoUrl: `https://login.microsoftonline.com/${tenantId}/saml2`,
-          entityId: `https://sts.windows.net/${tenantId}/`
-        };
-        
+        if (ssoType === 'oidc') {
+          return {
+            id: servicePrincipalId,
+            appId: appId,
+            ssoUrl: `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`,
+            entityId: `https://sts.windows.net/${tenantId}/`
+          };
+        } else {
+          return {
+            id: servicePrincipalId,
+            appId: appId,
+            ssoUrl: `https://login.microsoftonline.com/${tenantId}/saml2`,
+            entityId: `https://sts.windows.net/${tenantId}/`
+          };
+        }      
       } else {
-        // STRICT: Do not allow fallback to custom SAML apps - this breaks SCIM provisioning
-        console.log(chalk.red('   ❌ GitHub Enterprise Managed User template is required for SCIM provisioning'));
-        console.log(chalk.yellow('   Custom SAML applications do not support automated SCIM provisioning.'));
-        console.log(chalk.gray('   Please ensure the "GitHub Enterprise Managed User" template is available in your Azure tenant.'));
-        throw new Error('GitHub Enterprise Managed User template not found. This template is required for SCIM provisioning support.');
-      }    } catch (error: any) {
+        // STRICT: Do not allow fallback to custom apps - this breaks SCIM provisioning
+        const templateName = ssoType === 'oidc' ? 'GitHub Enterprise Managed User (OIDC)' : 'GitHub Enterprise Managed User';
+        console.log(chalk.red(`   ❌ ${templateName} template is required for SCIM provisioning`));
+        console.log(chalk.yellow('   Custom applications do not support automated SCIM provisioning.'));
+        console.log(chalk.gray(`   Please ensure the "${templateName}" template is available in your Azure tenant.`));
+        throw new Error(`${templateName} template not found. This template is required for SCIM provisioning support.`);
+      }
+    } catch (error: any) {
       // Re-throw user cancellation errors - don't fall back to custom app creation
       if (error.userCancelled) {
         throw error;
@@ -186,13 +222,14 @@ export class AzureService {
       throw new Error(`GitHub Enterprise app creation failed: ${error.message}. Gallery template is required for SCIM support.`);
     }
   }
-  async findGitHubGalleryApp(): Promise<{ id: string; displayName: string } | null> {
-    try {
-      console.log(chalk.gray('   Searching for GitHub Enterprise Managed User template...'));
+  async findGitHubGalleryApp(ssoType: 'saml' | 'oidc' = 'saml'): Promise<{ id: string; displayName: string } | null> {    try {
+      console.log(chalk.gray(`   Searching for GitHub Enterprise Managed User ${ssoType === 'oidc' ? '(OIDC)' : ''} template...`));
       
-      // STRICT: Only search for the exact 'GitHub Enterprise Managed User' template
+      // STRICT: Only search for the exact template based on SSO type
       // This is the ONLY supported template for SCIM provisioning with GitHub Enterprise
-      const exactTemplateName = 'GitHub Enterprise Managed User';
+      const exactTemplateName = ssoType === 'oidc' 
+        ? 'GitHub Enterprise Managed User (OIDC)'
+        : 'GitHub Enterprise Managed User';
       
       try {
         const response = await this.graphClient
@@ -207,10 +244,10 @@ export class AzureService {
         }
       } catch (searchError: any) {
         console.log(chalk.red(`   Failed to search for template: ${searchError.message}`));
-      }
-
+      }      
+      
       // STRICT: Do NOT fall back to other templates - this causes the wrong sync template to be used
-      console.log(chalk.red('   ❌ Required template not found: GitHub Enterprise Managed User'));
+      console.log(chalk.red(`   ❌ Required template not found: ${exactTemplateName}`));
       console.log(chalk.yellow('   This template is required for proper SCIM provisioning with GitHub Enterprise.'));
       console.log(chalk.yellow('   Possible causes:'));
       console.log(chalk.gray('     1. The template may not be available in your Azure tenant'));
@@ -241,14 +278,13 @@ export class AzureService {
     }
   }
 
-  async findExistingGitHubApp(enterpriseName: string): Promise<{ id: string; appId: string; displayName: string } | null> {
+  async findExistingGitHubApp(enterpriseName: string, ssoType: 'saml' | 'oidc' = 'saml'): Promise<{ id: string; appId: string; displayName: string } | null> {
     try {
       console.log(chalk.gray(`   Looking for existing GitHub Enterprise apps for: ${enterpriseName}...`));
-      
-      // Search for service principals that might be GitHub Enterprise apps
+        // Search for service principals that might be GitHub Enterprise apps
       const servicePrincipals = await this.graphClient
         .api('/servicePrincipals')
-        .select('id,displayName,appId,preferredSingleSignOnMode')
+        .select('id,displayName,appId,preferredSingleSignOnMode,servicePrincipalType,tags,publisherName')
         .get();
 
       if (!servicePrincipals.value || servicePrincipals.value.length === 0) {
@@ -258,50 +294,108 @@ export class AzureService {
       // Filter for potential GitHub apps
       const potentialGitHubApps = servicePrincipals.value.filter((sp: any) => 
         sp.displayName && 
-        sp.displayName.toLowerCase().includes('github') &&
-        sp.displayName.toLowerCase().includes(enterpriseName.toLowerCase())
+        sp.displayName.toLowerCase().includes('github')
       );
 
       if (potentialGitHubApps.length === 0) {
         console.log(chalk.gray(`   No existing GitHub apps found for enterprise: ${enterpriseName}`));
         return null;
-      }      // Check if any of these apps have the right entity ID configuration
+      }      
+      
+      // For OIDC, use more flexible detection since GitHub creates apps with generated names
+      // For SAML, check entity ID and reply URL configuration
       for (const sp of potentialGitHubApps) {
         try {
-          const applications = await this.graphClient
-            .api('/applications')
-            .filter(`appId eq '${sp.appId}'`)
-            .select('id,identifierUris,web')
-            .get();
-
-          if (applications.value && applications.value.length > 0) {
-            const app = applications.value[0];
-            const expectedEntityId = `https://github.com/enterprises/${enterpriseName}`;
-            const expectedReplyUrl = `https://github.com/enterprises/${enterpriseName}/saml/consume`;
+          if (ssoType === 'oidc') {
+            // For OIDC, check multiple criteria since GitHub creates the app with generated names
+            // Get additional details about the service principal to identify it
+            const spDetails = await this.graphClient
+              .api(`/servicePrincipals/${sp.id}`)
+              .select('id,displayName,appId,tags,servicePrincipalType,appDisplayName,publisherName,verifiedPublisher')
+              .get();
             
-            const hasCorrectEntityId = app.identifierUris?.includes(expectedEntityId);
-            const hasCorrectReplyUrl = app.web?.redirectUris?.includes(expectedReplyUrl);
-
-            if (hasCorrectEntityId && hasCorrectReplyUrl) {
-              console.log(chalk.green(`   ✅ Found existing properly configured app: ${sp.displayName}`));
-              console.log(chalk.gray(`     Entity ID: ${expectedEntityId}`));
-              console.log(chalk.gray(`     Reply URL: ${expectedReplyUrl}`));
+            // Check for indicators this is a GitHub OIDC app:
+            // 1. Service principal type should be Application
+            // 2. Tags might indicate it's from GitHub
+            // 3. Publisher information might indicate GitHub
+            const isApplication = spDetails.servicePrincipalType === 'Application';
+            const hasGitHubTags = (spDetails.tags || []).some((tag: string) => 
+              tag.toLowerCase().includes('github') || tag.toLowerCase().includes('oidc')
+            );
+            const publisherIsGitHub = (spDetails.publisherName || '').toLowerCase().includes('github') ||
+                                    (spDetails.verifiedPublisher?.displayName || '').toLowerCase().includes('github');
+            
+            // Check if display name follows GitHub's OIDC app naming pattern
+            const nameIndicatesGitHub = sp.displayName && (
+              sp.displayName.toLowerCase().includes('github') ||
+              sp.displayName.toLowerCase().includes('webhook') ||
+              // GitHub often uses app IDs that start with specific patterns
+              /^[a-z0-9]{20,}$/.test(sp.displayName.toLowerCase())
+            );
+            
+            console.log(chalk.gray(`   Evaluating OIDC app: ${sp.displayName}`));
+            console.log(chalk.gray(`     Type: ${spDetails.servicePrincipalType}, GitHub tags: ${hasGitHubTags}, Publisher: ${publisherIsGitHub}, Name pattern: ${nameIndicatesGitHub}`));
+            
+            // For OIDC, we'll be more permissive - any GitHub app that looks like it could be the OIDC app
+            if (isApplication && (hasGitHubTags || publisherIsGitHub || nameIndicatesGitHub)) {
+              console.log(chalk.green(`   ✅ Found potential OIDC app: ${sp.displayName}`));
               return {
                 id: sp.id,
                 appId: sp.appId,
                 displayName: sp.displayName
               };
-            } else if (hasCorrectEntityId || hasCorrectReplyUrl) {
-              console.log(chalk.yellow(`   ⚠️  Found partially configured app: ${sp.displayName}`));
-              console.log(chalk.gray(`     Entity ID match: ${hasCorrectEntityId ? '✅' : '❌'}`));
-              console.log(chalk.gray(`     Reply URL match: ${hasCorrectReplyUrl ? '✅' : '❌'}`));
-              // Continue looking for a fully configured app
+            } else {
+              console.log(chalk.yellow(`   ⚠️  App ${sp.displayName} doesn't match OIDC criteria`));
+            }
+          } else {
+            // For SAML, check entity ID and reply URL configuration
+            const applications = await this.graphClient
+              .api('/applications')
+              .filter(`appId eq '${sp.appId}'`)
+              .select('id,identifierUris,web')
+              .get();
+
+            if (applications.value && applications.value.length > 0) {
+              const app = applications.value[0];
+              const expectedEntityId = `https://github.com/enterprises/${enterpriseName}`;
+              const expectedReplyUrl = `https://github.com/enterprises/${enterpriseName}/saml/consume`;
+              
+              const hasCorrectEntityId = app.identifierUris?.includes(expectedEntityId);
+              const hasCorrectReplyUrl = app.web?.redirectUris?.includes(expectedReplyUrl);
+
+              if (hasCorrectEntityId && hasCorrectReplyUrl) {
+                console.log(chalk.green(`   ✅ Found existing properly configured SAML app: ${sp.displayName}`));
+                console.log(chalk.gray(`     Entity ID: ${expectedEntityId}`));
+                console.log(chalk.gray(`     Reply URL: ${expectedReplyUrl}`));
+                return {
+                  id: sp.id,
+                  appId: sp.appId,
+                  displayName: sp.displayName
+                };              
+              } else if (hasCorrectEntityId || hasCorrectReplyUrl) {
+                console.log(chalk.yellow(`   ⚠️  Found partially configured app: ${sp.displayName}`));
+                console.log(chalk.gray(`     Entity ID match: ${hasCorrectEntityId ? '✅' : '❌'}`));
+                console.log(chalk.gray(`     Reply URL match: ${hasCorrectReplyUrl ? '✅' : '❌'}`));
+                // Continue looking for a fully configured app
+              }
             }
           }
-        } catch (error) {
+        } catch (error: any) {
           // Continue checking other apps
-          continue;
-        }
+          console.log(chalk.red(`   ❌ Unexpected error when checking app: ${error.message}`));
+          continue;        }
+      }
+
+      // Fallback for OIDC: if we only found one GitHub app and we're looking for OIDC, use it
+      if (ssoType === 'oidc' && potentialGitHubApps.length === 1) {
+        const singleApp = potentialGitHubApps[0];
+        console.log(chalk.yellow(`   ⚠️  Only one GitHub app found for OIDC: ${singleApp.displayName}`));
+        console.log(chalk.yellow(`   Assuming this is the correct OIDC app created by GitHub`));
+        return {
+          id: singleApp.id,
+          appId: singleApp.appId,
+          displayName: singleApp.displayName
+        };
       }
 
       console.log(chalk.gray(`   No matching GitHub apps found for enterprise: ${enterpriseName}`));
@@ -312,56 +406,6 @@ export class AzureService {
     }
   }
 
-  async createCustomSAMLApp(enterpriseName: string): Promise<EntraApp> {
-    try {
-      console.log(chalk.gray('   Creating custom SAML application...'));
-      
-      // Create a custom application
-      const application = await this.graphClient
-        .api('/applications')
-        .post({
-          displayName: `GitHub Enterprise SSO - ${enterpriseName}`,
-          signInAudience: 'AzureADMyOrg',
-          web: {
-            redirectUris: [
-              `https://github.com/enterprises/${enterpriseName}/saml/consume`
-            ]
-          },
-          identifierUris: [
-            `https://github.com/enterprises/${enterpriseName}`
-          ]
-        });
-
-      // Create service principal for the application
-      const servicePrincipal = await this.graphClient
-        .api('/servicePrincipals')
-        .post({
-          appId: application.appId,
-          preferredSingleSignOnMode: 'saml'
-        });
-
-      // Create signing certificate
-      const certificateResponse = await this.graphClient
-        .api(`/servicePrincipals/${servicePrincipal.id}/addTokenSigningCertificate`)
-        .post({
-          displayName: `CN=GitHub-${enterpriseName}`,
-          endDateTime: new Date(Date.now() + 3 * 365 * 24 * 60 * 60 * 1000).toISOString()
-        });
-
-      // Get tenant ID
-      const tenantId = await this.getTenantId();
-
-      return {
-        id: servicePrincipal.id,
-        appId: application.appId,
-        ssoUrl: `https://login.microsoftonline.com/${tenantId}/saml2`,
-        entityId: `https://sts.windows.net/${tenantId}/`
-      };
-    } catch (error: any) {
-      throw new Error(`Failed to create custom SAML app: ${error.message}`);
-    }
-  }  
-  
   async configureSAMLSettings(servicePrincipalId: string, enterpriseName: string): Promise<void> {
     try {
       console.log(chalk.gray('   Configuring SAML settings...'));
@@ -397,7 +441,9 @@ export class AzureService {
       if (hasCorrectEntityId && hasCorrectReplyUrl) {
         console.log(chalk.green('   ✅ SAML configuration already correct'));
         return;
-      }      // Check for conflicts with other applications
+      }      
+      
+      // Check for conflicts with other applications
       console.log(chalk.gray('   Checking for existing configurations...'));
       try {
         const allApplications = await this.graphClient
@@ -447,13 +493,7 @@ export class AzureService {
     }
   }
 
-  private async configureSAMLWithUrls(
-    applicationId: string, 
-    servicePrincipalId: string, 
-    enterpriseName: string,
-    entityId: string,
-    replyUrl: string
-  ): Promise<void> {
+  private async configureSAMLWithUrls(applicationId: string, servicePrincipalId: string, enterpriseName: string, entityId: string, replyUrl: string): Promise<void> {
     // Configure SAML settings on the APPLICATION object first
     console.log(chalk.gray('   Setting application SAML configuration...'));
     await this.graphClient
@@ -579,7 +619,9 @@ export class AzureService {
       
       throw new Error(`Failed to get tenant ID: ${error.message}`);
     }
-  }async assignCurrentUserToApp(servicePrincipalId: string): Promise<void> {
+  }
+  
+  async assignCurrentUserToApp(servicePrincipalId: string): Promise<void> {
     try {
       console.log(chalk.gray('   Assigning current user to the application...'));
       
@@ -678,7 +720,8 @@ export class AzureService {
             });
           
           console.log(chalk.green('   ✅ Application configured to allow all tenant users'));
-            } catch (configError: any) {
+            
+        } catch (configError: any) {
           throw new Error(`Failed to configure user access: ${configError.message}`);
         }
       }
@@ -832,7 +875,8 @@ export class AzureService {
         throw error; // Re-throw our specific error
       }
       throw new Error(`Failed to validate GitHub Enterprise application: ${error.message}`);
-    }  }
+    }  
+  }
 
   // Simplified SCIM provisioning method based on working version
   async configureSCIMProvisioning(servicePrincipalId: string, scimEndpoint: string, scimToken: string): Promise<void> {
@@ -858,7 +902,9 @@ export class AzureService {
             }
           ]
         });      
-      console.log(chalk.green('   ✅ SCIM endpoint and token configured'));// Get available synchronization templates for this service principal
+      
+      console.log(chalk.green('   ✅ SCIM endpoint and token configured'));
+      // Get available synchronization templates for this service principal
       console.log(chalk.gray('   Checking for synchronization templates...'));
       const templates = await this.graphClient
         .api(`/servicePrincipals/${servicePrincipalId}/synchronization/templates`)
@@ -1027,6 +1073,7 @@ export class AzureService {
       return false;
     }
   }
+
   async enableProvisioningOnDemand(servicePrincipalId: string): Promise<void> {
     try {
       console.log(chalk.gray('   Enabling on-demand provisioning...'));

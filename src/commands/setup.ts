@@ -164,104 +164,158 @@ export const setupCommand = new Command('setup')
       let azureService: AzureService | null = null;     
       
       const appConfig = {
-        displayName: `GitHub Enterprise SSO - ${config.enterprise}`,
+        displayName: config.ssoType === 'oidc' 
+          ? `GitHub Enterprise Managed User (OIDC)`
+          : `GitHub Enterprise SAML SSO - ${config.enterprise}`,
         signOnUrl: `https://github.com/enterprises/${config.enterprise}/sso`,
         entityId: `https://github.com/enterprises/${config.enterprise}`,
-        replyUrl: `https://github.com/enterprises/${config.enterprise}/saml/consume`
-      };     
-
+        replyUrl: config.ssoType === 'oidc' 
+          ? `https://github.com/enterprises/${config.enterprise}/oauth/callback`
+          : `https://github.com/enterprises/${config.enterprise}/saml/consume`
+      };      
+      
       if (options.plan) {
         await setupHandler.generateSetupPlan(config, options);
       } 
       else {
-        try {
-          // Step 1: Get Azure credentials (skip if in plan mode)
-          console.log(chalk.cyan('🔍 Step 1: Getting Azure credentials...'));
+        if (config.ssoType === 'oidc') {
+          // OIDC: GitHub-first approach - no Azure app creation needed
+          console.log(chalk.green.bold('🎯 GitHub Enterprise OIDC Setup\n'));
+          
+          console.log(chalk.blue('📋 OIDC Setup Process:'));
+          console.log(chalk.gray('   OIDC uses a GitHub-first setup where the Entra ID application'));
+          console.log(chalk.gray('   is created automatically during the GitHub configuration process.\n'));
+          
+          console.log(chalk.yellow('⚠️  Prerequisites:'));
+          console.log(chalk.gray('   • You must be signed in as the setup user (ends with _admin)'));
+          console.log(chalk.gray('   • Your setup user must have Global Administrator rights in Entra ID'));
+          console.log(chalk.gray('   • This is required to consent to the automatic app installation\n'));
+          
+          // Open GitHub OIDC configuration page
+          const githubOidcUrl = `https://github.com/enterprises/${config.enterprise}/settings/single_sign_on_configuration`;
+          console.log(chalk.cyan('🌐 Opening GitHub Enterprise OIDC configuration page...'));
           try {
-            const azureCredential = await authService.authenticateAzure(config.domain);
-            azureService = new AzureService(azureCredential, config.domain);
-            console.log(chalk.green('✅ Azure authentication validated\n'));
-          } 
-          catch (error: any) {
-            console.log(chalk.red(`❌ Azure authentication failed: ${error.message}`));
-            console.log(chalk.yellow('Run: ghec-sso auth login'));
-            return;
-          }
-
-          // Step 2: Create/Configure Entra ID Enterprise Application
-          console.log(chalk.cyan('🏢 Step 2: Setting up Entra ID Enterprise Application...'));
-
-          const entraApp = await azureService!.createGitHubEnterpriseApp(config.enterprise);
-          await azureService!.configureSAMLSettings(entraApp.id, config.enterprise);
-          
-          console.log(chalk.green('✅ Entra ID Enterprise Application created\n'));
-          
-          // Step 3: Assign current user to the application
-          console.log(chalk.cyan('👤 Step 3: Assigning current user to application...'));
-          await azureService!.assignCurrentUserToApp(entraApp.id);
-          console.log(chalk.green('✅ Current user assigned to application\n'));
-          
-          // Step 4: Get SAML configuration details
-          console.log(chalk.cyan('⚙️  Step 4: Getting SAML configuration details...'));
-          const certificate = await azureService!.downloadSAMLCertificate(entraApp.id);
-          
-          console.log(chalk.green('✅ SAML configuration completed\n'));
-          
-          // Step 5: Output manual configuration details
-          console.log(chalk.green.bold('🎉 Entra ID Setup Complete! Manual GitHub Configuration Required:\n'));
-          
-          console.log(chalk.blue('📋 GitHub Enterprise SAML Configuration:'));
-          console.log(chalk.gray('   Copy these values to GitHub Enterprise SAML settings:\n'));
-          
-          console.log(chalk.yellow('   Sign-On URL:'));
-          console.log(chalk.white(`   ${entraApp.ssoUrl}\n`));
-          
-          console.log(chalk.yellow('   Issuer (Entity ID):'));
-          console.log(chalk.white(`   ${entraApp.entityId}\n`));
-          
-          console.log(chalk.yellow('   Certificate:'));
-          console.log(chalk.white(`   ${certificate}\n`));
-          
-          // Open GitHub SAML configuration page
-          const githubSamlUrl = `https://github.com/enterprises/${config.enterprise}/settings/saml_provider/edit`;
-          console.log(chalk.cyan('🌐 Opening GitHub Enterprise SAML configuration page...'));
-            try {
-            await open(githubSamlUrl);
-            console.log(chalk.green('✅ Browser opened to GitHub SAML settings'));
+            await open(githubOidcUrl);
+            console.log(chalk.green('✅ Browser opened to GitHub OIDC settings'));
           } catch (openError) {
             console.log(chalk.yellow('⚠️  Could not auto-open browser'));
-            console.log(chalk.gray(`   Please manually visit: ${githubSamlUrl}`));
+            console.log(chalk.gray(`   Please manually visit: ${githubOidcUrl}`));
           }
             
-          console.log(chalk.cyan('\n📝 Next Steps:'));
-          console.log(chalk.gray('1. In the opened GitHub page, click "Enable SAML authentication"'));
-          console.log(chalk.gray('2. Enter the Sign-On URL, Issuer, and Certificate from above'));
-          console.log(chalk.gray('3. Test the SAML connection'));
-          console.log(chalk.gray('4. Enable "Require SAML SSO authentication"'));          
-          console.log(chalk.gray('5. Save the SAML configuration\n'));
-
-          await setupScimProvisioning(config, appConfig);
-        } 
-        catch (error: any) {
-          // Check if this is a user cancellation - don't show fallback instructions
-          if (error.userCancelled) {
-            console.log(chalk.gray('\n⏸️  Setup cancelled by user.'));
-            console.log(chalk.gray('Run the command again when ready to proceed.'));
-            process.exit(0);
-          }
+          console.log(chalk.cyan('\n📝 Step-by-Step Instructions:'));
+          console.log(chalk.gray('1. In the opened GitHub page:'));
+          console.log(chalk.gray('   • Under "OIDC single sign-on", select "Enable OIDC configuration"'));
+          console.log(chalk.gray('   • Click "Save" to continue setup'));
+          console.log(chalk.gray(''));
+          console.log(chalk.gray('2. GitHub will redirect you to Entra ID:'));
+          console.log(chalk.gray('   • Sign in with your Global Administrator account'));
+          console.log(chalk.gray('   • Review the permissions for "GitHub Enterprise Managed User (OIDC)"'));
+          console.log(chalk.gray('   • Enable "Consent on behalf of your organization"'));
+          console.log(chalk.gray('   • Click "Accept"'));
+          console.log(chalk.gray(''));
+          console.log(chalk.gray('3. Back in GitHub:'));
+          console.log(chalk.gray('   • Download, print, or copy your recovery codes'));
+          console.log(chalk.gray('   • Store these codes in a secure location'));
+          console.log(chalk.gray('   • Click "Enable OIDC Authentication" to complete setup'));
+          console.log(chalk.gray(''));
+          console.log(chalk.yellow('4. After OIDC is enabled, you can:'));
+          console.log(chalk.gray('   • Assign users to the automatically created Entra ID application'));
+          console.log(chalk.gray('   • Configure SCIM provisioning'));
+          console.log(chalk.gray(''));
           
-          console.log(chalk.red(`❌ Setup failed: ${error.message}`));
-          console.log(chalk.yellow('\n💡 Manual Setup Instructions:'));
-          console.log(chalk.gray('1. Go to Azure Portal > Enterprise Applications'));
-          console.log(chalk.gray('2. Search for the "GitHub Enterprise Managed User" application in the gallery"'));
-          console.log(chalk.gray(`3. Name your application "${appConfig.displayName}", and click "Create"`));
-          console.log(chalk.gray('4. Go to "Single sign-on" > "SAML"'));
-          console.log(chalk.gray('5. Configure:'));
-          console.log(chalk.gray(`   - Identifier (Entity ID): ${appConfig.entityId}`));
-          console.log(chalk.gray(`   - Reply URL: ${appConfig.replyUrl}`));
-          console.log(chalk.gray(`   - Sign on URL: ${appConfig.signOnUrl}`));
-          console.log(chalk.gray('6. Download the certificate and copy the Login URL'));
-          console.log(chalk.gray('7. Configure in GitHub Enterprise SAML settings'));
+          await setupScimProvisioning(config, appConfig);
+          
+        } else {
+          // SAML Setup
+          try {
+            // Step 1: Get Azure credentials (skip if in plan mode)
+            console.log(chalk.cyan('🔍 Step 1: Getting Azure credentials...'));
+            try {
+              const azureCredential = await authService.authenticateAzure(config.domain);
+              azureService = new AzureService(azureCredential, config.domain);
+              console.log(chalk.green('✅ Azure authentication validated\n'));
+            } 
+            catch (error: any) {
+              console.log(chalk.red(`❌ Azure authentication failed: ${error.message}`));
+              console.log(chalk.yellow('Run: ghec-sso auth login'));
+              return;
+            }
+
+            // Step 2: Create/Configure Entra ID Enterprise Application
+            console.log(chalk.cyan(`🏢 Step 2: Setting up Entra ID Enterprise ${config.ssoType.toUpperCase()} Application...`));
+
+            const entraApp = await azureService!.createGitHubEnterpriseApp(config.enterprise, config.ssoType);
+            await azureService!.configureSAMLSettings(entraApp.id, config.enterprise);
+            
+            console.log(chalk.green(`✅ Entra ID Enterprise ${config.ssoType.toUpperCase()} Application created\n`));
+            
+            // Step 3: Assign current user to the application
+            console.log(chalk.cyan('👤 Step 3: Assigning current user to application...'));
+            await azureService!.assignCurrentUserToApp(entraApp.id);
+            console.log(chalk.green('✅ Current user assigned to application\n'));
+            
+            // Step 4: Get SAML configuration details
+            console.log(chalk.cyan('⚙️  Step 4: Getting SAML configuration details...'));
+            const certificate = await azureService!.downloadSAMLCertificate(entraApp.id);
+            
+            console.log(chalk.green('✅ SAML configuration completed\n'));
+            
+            // Step 5: Output manual configuration details
+            console.log(chalk.green.bold('🎉 Entra ID Setup Complete! Manual GitHub Configuration Required:\n'));
+            
+            console.log(chalk.blue('📋 GitHub Enterprise SAML Configuration:'));
+            console.log(chalk.gray('   Copy these values to GitHub Enterprise SAML settings:\n'));
+            
+            console.log(chalk.yellow('   Sign-On URL:'));
+            console.log(chalk.white(`   ${entraApp.ssoUrl}\n`));
+            
+            console.log(chalk.yellow('   Issuer (Entity ID):'));
+            console.log(chalk.white(`   ${entraApp.entityId}\n`));
+            
+            console.log(chalk.yellow('   Certificate:'));
+            console.log(chalk.white(`   ${certificate}\n`));
+            
+            // Open GitHub SAML configuration page
+            const githubSamlUrl = `https://github.com/enterprises/${config.enterprise}/settings/saml_provider/edit`;
+            console.log(chalk.cyan('🌐 Opening GitHub Enterprise SAML configuration page...'));
+            try {
+              await open(githubSamlUrl);
+              console.log(chalk.green('✅ Browser opened to GitHub SAML settings'));
+            } catch (openError) {
+              console.log(chalk.yellow('⚠️  Could not auto-open browser'));
+              console.log(chalk.gray(`   Please manually visit: ${githubSamlUrl}`));
+            }
+              
+            console.log(chalk.cyan('\n📝 Next Steps:'));
+            console.log(chalk.gray('1. In the opened GitHub page, click "Enable SAML authentication"'));
+            console.log(chalk.gray('2. Enter the Sign-On URL, Issuer, and Certificate from above'));
+            console.log(chalk.gray('3. Test the SAML connection'));
+            console.log(chalk.gray('4. Enable "Require SAML SSO authentication"'));          
+            console.log(chalk.gray('5. Save the SAML configuration\n'));
+
+            await setupScimProvisioning(config, appConfig);
+          } 
+          catch (error: any) {
+            // Check if this is a user cancellation - don't show fallback instructions
+            if (error.userCancelled) {
+              console.log(chalk.gray('\n⏸️  Setup cancelled by user.'));
+              console.log(chalk.gray('Run the command again when ready to proceed.'));
+              process.exit(0);
+            }
+            
+            console.log(chalk.red(`❌ Setup failed: ${error.message}`));
+            console.log(chalk.yellow('\n💡 Manual Setup Instructions:'));
+            console.log(chalk.gray('1. Go to Azure Portal > Enterprise Applications'));
+            console.log(chalk.gray('2. Search for the "GitHub Enterprise Managed User" application in the gallery'));
+            console.log(chalk.gray(`3. Name your application "${appConfig.displayName}", and click "Create"`));
+            console.log(chalk.gray('4. Go to "Single sign-on" > "SAML"'));
+            console.log(chalk.gray('5. Configure:'));
+            console.log(chalk.gray(`   - Identifier (Entity ID): ${appConfig.entityId}`));
+            console.log(chalk.gray(`   - Reply URL: ${appConfig.replyUrl}`));
+            console.log(chalk.gray(`   - Sign on URL: ${appConfig.signOnUrl}`));
+            console.log(chalk.gray('6. Download the certificate and copy the Login URL'));
+            console.log(chalk.gray('7. Configure in GitHub Enterprise SAML settings'));
+          }
         }
       }
 

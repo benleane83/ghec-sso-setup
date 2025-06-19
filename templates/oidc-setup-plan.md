@@ -14,54 +14,7 @@ This plan will guide you through setting up OIDC SSO between your GitHub Enterpr
 - [ ] GitHub Enterprise Owner permissions for `{{ENTERPRISE_NAME}}`
 - [ ] Microsoft Entra ID Global Administrator or Application Administrator permissions
 
-## Phase 1: Create Entra ID OIDC Application
-
-### Step 1: Access Azure Portal
-1. In the Azure portal, navigate to [**Microsoft Entra ID** > **Enterprise applications**](https://portal.azure.com/#view/Microsoft_AAD_IAM/StartboardApplicationsMenuBlade/~/AppAppsPreview)
-2. Sign in with your Azure administrator account if prompted
-
-### Step 2: Create New Application
-1. Click **+ New application**
-2. Use **Search application** to search for **GitHub Enterprise Managed User (OIDC)** in the gallery
-3. Enter a name of **{{DISPLAY_NAME}}** for your application
-4. Click **Create**
-
-### Step 3: Configure Single Sign-On (Optional - for additional configuration)
-1. In your new application, navigate to **Single sign-on** in the left menu
-2. Select **OIDC** as the single sign-on method if prompted
-3. Note: The OIDC application is primarily for user provisioning; GitHub Enterprise OIDC SSO is configured directly in GitHub
-
-### Step 4: Assign Users
-1. Navigate to **Users and groups** in the left menu
-2. Click **+ Add user/group**
-3. Assign users or groups who should have access to GitHub Enterprise
-4. Select appropriate roles (Enterprise Owner or User)
-
-## Phase 2: Configure SCIM User Provisioning
-
-The main purpose of the OIDC application in Entra ID is to enable automatic user provisioning via SCIM.
-
-### Step 1: Create SCIM Token in GitHub
-1. Open your browser and navigate to: **{{GITHUB_TOKEN_URL}}**
-2. Click **Generate token**, accepting all default settings provided
-3. **Important:** Copy and save this token securely - you won't be able to see it again
-
-### Step 2: Configure Provisioning in Entra ID
-1. In your GitHub Enterprise Managed User (OIDC) application, navigate to **Provisioning**
-2. Set **Provisioning Mode** to **Automatic**
-3. Under **Admin Credentials**, configure:
-   - **Tenant URL:** `{{SCIM_ENDPOINT}}`
-   - **Secret Token:** [Paste the GitHub personal access token you created]
-4. Click **Test Connection** to verify connectivity
-5. Click **Save**
-
-### Step 3: Start Provisioning
-1. Open or refresh the **Provisioning** page within the left menu
-2. Set **Provisioning Status** to **On**
-2. Click **Save**
-3. Initial synchronization will begin automatically
-
-## Phase 3: GitHub Enterprise OIDC Configuration
+## Phase 1: GitHub Enterprise OIDC Configuration
 
 **Note:** GitHub Enterprise OIDC SSO configuration is done directly in GitHub, not through the Entra ID application.
 
@@ -95,6 +48,40 @@ The main purpose of the OIDC application in Entra ID is to enable automatic user
 
 5. **Enable OIDC Authentication**
    - Click **Enable OIDC Authentication** to complete the setup
+
+## Phase 2: Assign Users to Entra ID Application
+
+### Step 1: Access Azure Portal
+1. In the Azure portal, navigate to [**Microsoft Entra ID** > **Enterprise applications**](https://portal.azure.com/#view/Microsoft_AAD_IAM/StartboardApplicationsMenuBlade/~/AppAppsPreview)
+2. Sign in with your Azure administrator account if prompted
+
+### Step 2: Assign Users
+1. Navigate to **Users and groups** in the left menu
+2. Click **+ Add user/group**
+3. Assign users or groups who should have access to GitHub Enterprise
+4. Select appropriate roles (Enterprise Owner or User)
+
+## Phase 3: Configure SCIM User Provisioning
+
+### Step 1: Create SCIM Token in GitHub
+1. Open your browser and navigate to: **{{GITHUB_TOKEN_URL}}**
+2. Click **Generate token**, accepting all default settings provided
+3. **Important:** Copy and save this token securely - you won't be able to see it again
+
+### Step 2: Configure Provisioning in Entra ID
+1. In your GitHub Enterprise Managed User (OIDC) application, navigate to **Provisioning**
+2. Set **Provisioning Mode** to **Automatic**
+3. Under **Admin Credentials**, configure:
+   - **Tenant URL:** `{{SCIM_ENDPOINT}}`
+   - **Secret Token:** [Paste the GitHub personal access token you created]
+4. Click **Test Connection** to verify connectivity
+5. Click **Save**
+
+### Step 3: Start Provisioning
+1. Open or refresh the **Provisioning** page within the left menu
+2. Set **Provisioning Status** to **On**
+2. Click **Save**
+3. Initial synchronization will begin automatically
 
 **Important Notes:**
 - OIDC does not support IdP-initiated authentication
