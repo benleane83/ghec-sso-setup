@@ -44,20 +44,22 @@ export class TemplateProcessor {
   async generateHtmlSetupPlan(
     enterpriseName: string, 
     domain: string = 'common',
-    outputPath?: string
-  ): Promise<string> {
-    // Generate the template content
-    const templateContent = await this.processTemplate('setup-plan.md', {
+    ssoType: string = 'saml',
+    outputPath?: string  ): Promise<string> {    // Generate the template content
+    const templateName = ssoType === 'oidc' ? 'oidc-setup-plan.md' : 'saml-setup-plan.md';
+    const templateContent = await this.processTemplate(templateName, {
       DATE: new Date().toLocaleString(),
       ENTERPRISE_NAME: enterpriseName,
       DOMAIN: domain === 'common' ? 'your organization domain (e.g., company.onmicrosoft.com)' : domain,
-      DISPLAY_NAME: `GitHub Enterprise SSO - ${enterpriseName}`,
+      SSO_TYPE: ssoType.toUpperCase(),
+      DISPLAY_NAME: `GitHub Enterprise ${ssoType.toUpperCase()} SSO - ${enterpriseName}`,
       ENTITY_ID: `https://github.com/enterprises/${enterpriseName}`,
       REPLY_URL: `https://github.com/enterprises/${enterpriseName}/saml/consume`,
       SIGN_ON_URL: `https://github.com/enterprises/${enterpriseName}/sso`,
       LOGOUT_URL: `https://github.com/enterprises/${enterpriseName}/saml/sls`,
       GITHUB_SAML_URL: `https://github.com/enterprises/${enterpriseName}/settings/saml_provider/edit`,
       GITHUB_TOKEN_URL: `https://github.com/settings/tokens/new?scopes=scim:enterprise&description=SCIM%20Token`,
+      GITHUB_SSO_CONFIG_URL: `https://github.com/enterprises/${enterpriseName}/settings/single_sign_on_configuration`,
       SCIM_ENDPOINT: `https://api.github.com/scim/v2/enterprises/${enterpriseName}/`
     });
 
@@ -94,19 +96,17 @@ export class TemplateProcessor {
   /**
    * Generate HTML setup plan to user's desktop
    */
-  async generateHtmlSetupPlanToDesktop(enterpriseName: string, domain: string = 'common'): Promise<string> {
+  async generateHtmlSetupPlanToDesktop(enterpriseName: string, domain: string = 'common', ssoType: string = 'saml'): Promise<string> {
     const filename = this.getDefaultHtmlFilename(enterpriseName);
     const desktopPath = this.getDesktopPath();
-    const fullPath = path.join(desktopPath, filename);
-
-    try {
-      await this.generateHtmlSetupPlan(enterpriseName, domain, fullPath);
+    const fullPath = path.join(desktopPath, filename);    try {
+      await this.generateHtmlSetupPlan(enterpriseName, domain, ssoType, fullPath);
       return fullPath;
     } catch (error) {
       // Fallback to current directory if desktop is not accessible
       const fallbackPath = path.join(process.cwd(), filename);
       console.log(chalk.yellow('Could not save to desktop, trying current directory...'));
-      await this.generateHtmlSetupPlan(enterpriseName, domain, fallbackPath);
+      await this.generateHtmlSetupPlan(enterpriseName, domain, ssoType, fallbackPath);
       return fallbackPath;
     }
   }

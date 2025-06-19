@@ -2,7 +2,7 @@
 
 ## For IT Administrators
 
-This guide helps you set up GitHub Enterprise Cloud SAML SSO with Microsoft Entra ID using our automated CLI tool.
+This guide helps you set up GitHub Enterprise Cloud SSO with Microsoft Entra ID using our automated CLI tool.
 
 ### What You'll Need
 
@@ -43,8 +43,8 @@ ghec-sso setup --enterprise acme-corp
 The tool will:
 - ✅ Create and configure the Entra ID application automatically
 - ✅ Assign you as Enterprise Owner
-- ✅ Provide SAML configuration values
-- ✅ Open GitHub Enterprise SAML settings page
+- ✅ Provide SSO configuration values
+- ✅ Open GitHub Enterprise SSO settings page
 
 **Assist in copying the displayed values into GitHub:**
 - Sign-On URL
@@ -53,20 +53,20 @@ The tool will:
 
 #### Step 3: Set up user provisioning (manual)
 The tool will prompt the user to perform the following manual steps
-- In GitHub, enable SAML SSO and get your SCIM token
+- In GitHub, enable SSO and get your SCIM token
 - Navigate to the Entra ID Application and enter the provided values to enable auto provisioning
 
 ### What the Tool Does
 
 **Automatically:**
 - ✅ Creates GitHub Enterprise Managed User app in Entra ID
-- ✅ Configures all SAML settings and URLs
+- ✅ Configures all SSO settings and URLs
 - ✅ Generates and configures certificates
 - ✅ Sets up user roles and permissions
 
 **Requires manual steps:**
-- 📋 Copy SAML values into GitHub Enterprise settings
-- 📋 Test SAML authentication
+- 📋 Copy SSO values into GitHub Enterprise settings
+- 📋 Test SSO authentication
 - 📋 Enable SSO enforcement when ready
 
 ### Troubleshooting
@@ -103,7 +103,7 @@ ghec-sso auth login
 ### Important Security Notes
 
 ⚠️ **Before enabling SSO:**
-- Test SAML authentication with a few users first
+- Test SSO authentication with a few users first
 - Ensure you have recovery access to GitHub Enterprise
 
 ⚠️ **After setup:**

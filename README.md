@@ -4,7 +4,7 @@
 [![Downloads](https://img.shields.io/github/downloads/benleane83/ghec-sso-setup/total?style=for-the-badge&logo=github)](https://github.com/benleane83/ghec-sso-setup/releases)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/benleane83/ghec-sso-setup/build-release.yml?style=for-the-badge&logo=github-actions)](https://github.com/benleane83/ghec-sso-setup/actions)
 
-A command-line tool to automate GitHub Enterprise Cloud SAML SSO setup with Microsoft Entra ID.
+A command-line tool to automate GitHub Enterprise Cloud SSO setup with Microsoft Entra ID.
 
 ## 🚀 Features
 
@@ -82,13 +82,13 @@ npm install -g git+https://github.com/benleane83/ghec-sso-setup.git
    ghec-sso setup --enterprise mycompany --domain mycompany.onmicrosoft.com
    ```
 
-3. **Follow the interactive prompts for SCIM setup after GitHub SAML is configured**
+3. **Follow the interactive prompts for SCIM setup after GitHub SSO is configured**
 
 ## Commands
 
 ### `ghec-sso setup`
 
-Automate Entra ID configuration and guide GitHub SAML setup.
+Automate Entra ID configuration and guide GitHub SSO setup.
 
 ```bash
 ghec-sso setup [options]
@@ -151,7 +151,7 @@ ghec-sso validate --enterprise mycompany
 **Azure/Entra ID:**
 - Global Administrator or Application Administrator role
 - Permission to create Enterprise Applications
-- Permission to configure SAML and provisioning
+- Permission to configure SSO and provisioning
 
 ### Required Information
 
@@ -233,7 +233,7 @@ ghec-sso auth logout
 ghec-sso auth login
 ```
 
-### Common SAML Setup Issues
+### Common SSO Setup Issues
 
 **Entra ID application creation fails:**
 - Verify Azure permissions (Application Administrator role)
@@ -255,6 +255,6 @@ MIT License - see LICENSE file for details.
 
 This tool handles sensitive authentication data:
 - 🔑 **Azure tokens** are temporary and not persisted
-- 📜 **SAML certificates** are only displayed, not stored
+- 📜 **SSO certificates** are only displayed, not stored
 
 ---

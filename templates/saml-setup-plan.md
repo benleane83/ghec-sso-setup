@@ -1,18 +1,18 @@
-# GitHub Enterprise SSO Setup Plan
+# GitHub Enterprise {{SSO_TYPE}} SSO Setup Plan
 
 **Generated on:** {{DATE}}  
 **Enterprise:** {{ENTERPRISE_NAME}}  
 **Domain:** {{DOMAIN}}  
+**SSO Type:** {{SSO_TYPE}}
 
 ## Overview
 
-This plan will guide you through setting up SAML SSO between your GitHub Enterprise ({{ENTERPRISE_NAME}}) and Microsoft Entra ID (Azure AD).
+This plan will guide you through setting up {{SSO_TYPE}} SSO between your GitHub Enterprise ({{ENTERPRISE_NAME}}) and Microsoft Entra ID (Azure AD).
 
 ## Prerequisites
 
 - [ ] GitHub Enterprise Owner permissions for `{{ENTERPRISE_NAME}}`
 - [ ] Microsoft Entra ID Global Administrator or Application Administrator permissions
-- [ ] Access to your organization's domain: `{{DOMAIN}}`
 
 ## Phase 1: Create Entra ID Enterprise Application
 

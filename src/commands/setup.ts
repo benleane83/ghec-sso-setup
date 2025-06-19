@@ -9,29 +9,135 @@ import open from 'open';
 interface EntraAppConfig {
   displayName: string;
   signOnUrl: string;
-  entityId: string;
-  replyUrl: string;
+  entityId: string;  replyUrl: string;
+}
+
+interface SetupConfig {
+  enterprise: string;
+  domain?: string;
+  ssoType: 'saml' | 'oidc';
+}
+
+class SetupCommandHandler {
+  public async generateSetupPlan(config: SetupConfig, options: any): Promise<void> {
+    console.log(chalk.blue.bold('📋 Generating Comprehensive Setup Plan...\n'));
+    
+    const templateProcessor = new TemplateProcessor();
+    try {
+      let planPath: string;
+      
+      if (options.planOutput) {
+        // Use custom output path
+        planPath = await templateProcessor.generateHtmlSetupPlan(
+          config.enterprise, 
+          config.domain || 'common',
+          config.ssoType,
+          options.planOutput
+        );
+      } else {
+        // Generate to desktop with default filename
+        planPath = await templateProcessor.generateHtmlSetupPlanToDesktop(
+          config.enterprise, 
+          config.domain || 'common',
+          config.ssoType
+        );
+      }
+      
+      console.log(chalk.green.bold('🎉 Setup Plan Generated Successfully!\n'));
+      console.log(chalk.cyan('📄 Plan Details:'));
+      console.log(chalk.gray(`   Enterprise: ${config.enterprise}`));
+      console.log(chalk.gray(`   Domain: ${config.domain || 'common (default tenant)'}`));
+      console.log(chalk.gray(`   SSO Type: ${config.ssoType.toUpperCase()}`));
+      console.log(chalk.gray(`   Format: HTML`));
+      console.log(chalk.gray(`   File: ${planPath}\n`));
+      
+      console.log(chalk.yellow(`📋 The ${config.ssoType} plan includes:`));
+      console.log(chalk.gray('   • Step-by-step Entra ID application setup'));
+      console.log(chalk.gray('   • SCIM provisioning configuration'));
+      console.log(chalk.gray('   • GitHub Enterprise setup reference'));
+      console.log(chalk.gray('   • Verification and testing checklist'));
+      console.log(chalk.gray('   • Troubleshooting guide\n'));
+
+      // Ask if user wants to open the file
+      const inquirer = await import('inquirer');
+      const { openFile } = await inquirer.default.prompt([{
+        type: 'confirm',
+        name: 'openFile',
+        message: 'Would you like to open the setup plan now?',
+        default: true
+      }]);
+      
+      if (openFile) {
+        try {
+          await open(planPath);
+          console.log(chalk.green('✅ Setup plan opened in your default application'));
+        } catch (openError) {
+          console.log(chalk.yellow('⚠️  Could not auto-open file'));
+          console.log(chalk.gray(`   Please manually open: ${planPath}`));
+        }
+      }
+      
+      console.log(chalk.cyan('\n💡 Next Steps:'));
+      console.log(chalk.gray(`1. Follow the generated ${config.ssoType} plan step-by-step`));
+      console.log(chalk.gray('2. Test your SSO configuration thoroughly'));
+      console.log(chalk.gray('3. Run this command without --plan for automated setup'));
+      console.log(chalk.gray('4. Save the plan for future reference or team sharing'));
+      console.log('');
+      
+    } catch (error: any) {
+      console.log(chalk.red(`❌ Failed to generate setup plan: ${error.message}`));
+      console.log(chalk.yellow('\n📋 Fallback: Basic Configuration Summary'));
+      
+      const appConfig = {
+        displayName: `GitHub Enterprise SSO - ${config.enterprise}`,
+        signOnUrl: `https://github.com/enterprises/${config.enterprise}/sso`,
+        entityId: `https://github.com/enterprises/${config.enterprise}`,
+        replyUrl: `https://github.com/enterprises/${config.enterprise}/saml/consume`
+      };
+      
+      console.log(chalk.gray(`   Display Name: ${appConfig.displayName}`));
+      console.log(chalk.gray(`   Sign-On URL: ${appConfig.signOnUrl}`));
+      console.log(chalk.gray(`   Entity ID: ${appConfig.entityId}`));
+      console.log(chalk.gray(`   Reply URL: ${appConfig.replyUrl}`));
+      console.log(chalk.gray(`   SCIM Endpoint: https://api.github.com/scim/v2/enterprises/${config.enterprise}/\n`));
+    }
+  }
+}
+
+const setupHandler = new SetupCommandHandler();
+
+interface SetupConfig {
+  enterprise: string;
+  domain?: string;
+  ssoType: 'saml' | 'oidc';
 }
 
 export const setupCommand = new Command('setup')
   .description('Setup GitHub Enterprise Cloud SSO with Entra ID')  
   .option('-e, --enterprise <n>', 'GitHub Enterprise slug (e.g. for github.com/enterprises/my-company, use my-company)')
   .option('-d, --domain [domain]', 'Your organizations Entra domain (optional - e.g. company.onmicrosoft.com)')
+  .option('--ssoType <type>', 'SSO protocol type: saml (default) or oidc', 'saml')
   .option('--plan', 'Generate a comprehensive HTML setup plan without making changes')
   .option('--plan-output [path]', 'Custom output path for the setup plan (only with --plan)')
-  .action(async (options) => {
-    console.log(chalk.blue.bold('🚀 GitHub Enterprise Cloud SSO Setup\n'));
+  .action(async (options) => {    console.log(chalk.blue.bold('🚀 GitHub Enterprise Cloud SSO Setup\n'));
 
     try {
+      // Validate ssoType option
+      if (options.ssoType && !['saml', 'oidc'].includes(options.ssoType.toLowerCase())) {
+        console.log(chalk.red('❌ Invalid SSO type. Must be either "saml" or "oidc"'));
+        return;
+      }      const ssoType = (options.ssoType || 'saml').toLowerCase();
+
       // Validate authentication
       const authService = new AuthService();
 
       // Get configuration
       const configManager = new ConfigManager();
-      let config = {
+      let config: SetupConfig = {
         enterprise: options.enterprise,
-        domain: options.domain
-      };      
+        domain: options.domain,
+        ssoType: ssoType as 'saml' | 'oidc'
+      };
       
       // Prompt for missing configuration
       if (!config.enterprise) {
@@ -48,112 +154,43 @@ export const setupCommand = new Command('setup')
         ]);
 
         config = { ...config, ...missing };
-      }      
-      
+      }   
+
       console.log(chalk.cyan(`📋 Configuration:`));
       console.log(chalk.gray(`   Enterprise: ${config.enterprise}`));
       console.log(chalk.gray(`   Domain: ${config.domain || 'common (default tenant)'}`));
-      console.log(chalk.gray(`   Mode: ${options.plan ? 'PLAN' : 'LIVE'}\n`));
-
-      // We'll initialize Azure service after we get Azure credentials
+      console.log(chalk.gray(`   SSO Type: ${config.ssoType.toUpperCase()}`));
+      console.log(chalk.gray(`   Mode: ${options.plan ? 'PLAN' : 'LIVE'}\n`));      // We'll initialize Azure service after we get Azure credentials
       let azureService: AzureService | null = null;     
-      
-      // Step 1: Get Azure credentials
-      console.log(chalk.cyan('🔍 Step 1: Getting Azure credentials...'));
-      try {
-        const azureCredential = await authService.authenticateAzure(config.domain);
-        azureService = new AzureService(azureCredential, config.domain);
-        console.log(chalk.green('✅ Azure authentication validated\n'));
-      } 
-      catch (error: any) {
-        console.log(chalk.red(`❌ Azure authentication failed: ${error.message}`));
-        console.log(chalk.yellow('Run: ghec-sso auth login'));
-        return;
-      }
-
-      // Step 2: Create/Configure Entra ID Enterprise Application
-      console.log(chalk.cyan('🏢 Step 2: Setting up Entra ID Enterprise Application...'));
       
       const appConfig = {
         displayName: `GitHub Enterprise SSO - ${config.enterprise}`,
         signOnUrl: `https://github.com/enterprises/${config.enterprise}/sso`,
         entityId: `https://github.com/enterprises/${config.enterprise}`,
         replyUrl: `https://github.com/enterprises/${config.enterprise}/saml/consume`
-      };      
-      
-      if (options.plan) {
-        console.log(chalk.blue.bold('📋 Generating Comprehensive Setup Plan...\n'));
-        
-        const templateProcessor = new TemplateProcessor();
-          try {
-          let planPath: string;
-          
-          if (options.planOutput) {
-            // Use custom output path
-            planPath = await templateProcessor.generateHtmlSetupPlan(
-              config.enterprise, 
-              config.domain || 'common', 
-              options.planOutput
-            );
-          } else {
-            // Generate to desktop with default filename
-            planPath = await templateProcessor.generateHtmlSetupPlanToDesktop(
-              config.enterprise, 
-              config.domain || 'common'
-            );
-          }
-          
-          console.log(chalk.green.bold('🎉 Setup Plan Generated Successfully!\n'));
-          console.log(chalk.cyan('📄 Plan Details:'));
-          console.log(chalk.gray(`   Enterprise: ${config.enterprise}`));
-          console.log(chalk.gray(`   Domain: ${config.domain || 'common (default tenant)'}`));
-          console.log(chalk.gray(`   Format: HTML`));
-          console.log(chalk.gray(`   File: ${planPath}\n`));
-          
-          console.log(chalk.yellow('📋 The plan includes:'));
-          console.log(chalk.gray('   • Step-by-step Entra ID application setup'));
-          console.log(chalk.gray('   • Exact URLs and configuration values'));
-          console.log(chalk.gray('   • GitHub Enterprise SAML configuration'));
-          console.log(chalk.gray('   • Optional SCIM provisioning setup'));
-          console.log(chalk.gray('   • Verification checklist'));
-          console.log(chalk.gray('   • Troubleshooting guide\n'));
+      };     
 
-          // Ask if user wants to open the file
-          const inquirer = await import('inquirer');
-          const { openFile } = await inquirer.default.prompt([{
-            type: 'confirm',
-            name: 'openFile',
-            message: 'Would you like to open the setup plan now?',
-            default: true
-          }]);
-          
-          if (openFile) {
-            try {
-              await open(planPath);
-              console.log(chalk.green('✅ Setup plan opened in your default application'));
-            } catch (openError) {
-              console.log(chalk.yellow('⚠️  Could not auto-open file'));
-              console.log(chalk.gray(`   Please manually open: ${planPath}`));
-            }
-          }
-            console.log(chalk.cyan('\n💡 Next Steps:'));
-          console.log(chalk.gray('1. Follow the generated plan step-by-step'));
-          console.log(chalk.gray('2. Test your SAML configuration thoroughly'));
-          console.log(chalk.gray('3. Run this command without --plan for automated setup'));
-          console.log(chalk.gray('4. Save the plan for future reference or team sharing\n'));
-          
-        } catch (error: any) {
-          console.log(chalk.red(`❌ Failed to generate setup plan: ${error.message}`));
-          console.log(chalk.yellow('\n📋 Fallback: Basic Configuration Summary'));
-          console.log(chalk.gray(`   Display Name: ${appConfig.displayName}`));
-          console.log(chalk.gray(`   Sign-On URL: ${appConfig.signOnUrl}`));
-          console.log(chalk.gray(`   Entity ID: ${appConfig.entityId}`));
-          console.log(chalk.gray(`   Reply URL: ${appConfig.replyUrl}`));
-          console.log(chalk.gray(`   SCIM Endpoint: https://api.github.com/scim/v2/enterprises/${config.enterprise}/\n`));
-        }
+      if (options.plan) {
+        await setupHandler.generateSetupPlan(config, options);
       } 
       else {
         try {
+          // Step 1: Get Azure credentials (skip if in plan mode)
+          console.log(chalk.cyan('🔍 Step 1: Getting Azure credentials...'));
+          try {
+            const azureCredential = await authService.authenticateAzure(config.domain);
+            azureService = new AzureService(azureCredential, config.domain);
+            console.log(chalk.green('✅ Azure authentication validated\n'));
+          } 
+          catch (error: any) {
+            console.log(chalk.red(`❌ Azure authentication failed: ${error.message}`));
+            console.log(chalk.yellow('Run: ghec-sso auth login'));
+            return;
+          }
+
+          // Step 2: Create/Configure Entra ID Enterprise Application
+          console.log(chalk.cyan('🏢 Step 2: Setting up Entra ID Enterprise Application...'));
+
           const entraApp = await azureService!.createGitHubEnterpriseApp(config.enterprise);
           await azureService!.configureSAMLSettings(entraApp.id, config.enterprise);
           
@@ -203,66 +240,7 @@ export const setupCommand = new Command('setup')
           console.log(chalk.gray('4. Enable "Require SAML SSO authentication"'));          
           console.log(chalk.gray('5. Save the SAML configuration\n'));
 
-          // Single prompt for SAML completion and SCIM setup
-          const inquirer = await import('inquirer');
-          
-          const { proceedWithScim } = await inquirer.default.prompt([{
-            type: 'confirm',
-            name: 'proceedWithScim',
-            message: 'Have you completed the SAML SSO configuration and want to proceed with SCIM provisioning setup?',
-            default: false
-          }]);
-
-          if (proceedWithScim) {
-              console.log(chalk.cyan('\n🔧 Setting up SCIM Provisioning...\n'));
-              
-              // Open GitHub SCIM token creation page
-              const tokenUrl = `https://github.com/settings/tokens/new?scopes=scim:enterprise&description=SCIM%20Token%20for%20${config.enterprise}`;
-              console.log(chalk.cyan('🌐 Opening GitHub SCIM Token creation page...'));
-              
-              try {
-                await open(tokenUrl);
-                console.log(chalk.green('✅ Browser opened to GitHub token creation page'));
-              } catch (openError) {
-                console.log(chalk.yellow('⚠️  Could not auto-open browser'));
-                console.log(chalk.gray(`   Please manually visit: ${tokenUrl}`));
-              }
-
-              console.log(chalk.yellow('📋 SCIM Token Generation:\n'));
-              console.log(chalk.gray('1. In the opened GitHub page:'));
-              console.log(chalk.gray('   • The token description and scopes are pre-filled'));
-              console.log(chalk.gray('   • Click "Generate token"'));
-              console.log(chalk.gray('   • Copy the generated token (you won\'t see it again)\n'));
-              
-              console.log(chalk.yellow('📋 Manual SCIM Configuration Instructions:\n'));
-              
-              // Display the SCIM endpoint for the user
-              const scimEndpoint = `https://api.github.com/scim/v2/enterprises/${config.enterprise}`;
-        
-              console.log(chalk.yellow('� Step-by-Step SCIM Setup:'));
-              console.log(chalk.gray('2. Now configure SCIM in Entra ID:'));
-              console.log(chalk.yellow('🏢 Configure in Entra ID:'));
-              console.log(chalk.gray('   • Go to Azure Portal > Enterprise Applications'));
-              console.log(chalk.gray(`   • Find and open "${appConfig.displayName}"`));
-              console.log(chalk.gray('   • Click "Provisioning" in the left menu'));
-              console.log(chalk.gray('   • Click "Get started"'));
-              console.log(chalk.gray('   • Set Provisioning Mode to "Automatic"'));
-              console.log(chalk.gray('   • In Admin Credentials section:'));
-              console.log(chalk.gray(`     ○ Tenant URL: ${scimEndpoint}`));
-              console.log(chalk.gray('     ○ Secret Token: [Paste your GitHub SCIM token from above]'));
-              console.log(chalk.gray('   • Click "Test Connection" to verify'));
-              console.log(chalk.gray('   • Configure Settings as needed'));
-              console.log(chalk.gray('   • Click "Save" and then "Start provisioning"\n'));
-              
-              console.log(chalk.yellow('⚠️  Important Notes:'));
-              console.log(chalk.gray('• Only configure SCIM after SAML SSO is fully working'));
-              console.log(chalk.gray('• Test with a small group of users first'));
-              console.log(chalk.gray('• Monitor the first synchronization cycle for any issues\n'));          
-            } 
-            else {
-              console.log(chalk.yellow('\n📋 Setup instructions provided.'));
-              console.log(chalk.gray('Configure SCIM manually using the Azure Portal\n'));
-          }
+          await setupScimProvisioning(config, appConfig);
         } 
         catch (error: any) {
           // Check if this is a user cancellation - don't show fallback instructions
@@ -293,15 +271,77 @@ export const setupCommand = new Command('setup')
     }
   });
 
+async function setupScimProvisioning(config: SetupConfig, appConfig: { displayName: string; signOnUrl: string; entityId: string; replyUrl: string; }) {
+  const inquirer = await import('inquirer');
+
+  const { proceedWithScim } = await inquirer.default.prompt([{
+    type: 'confirm',
+    name: 'proceedWithScim',
+    message: 'Have you completed the SSO configuration and want to proceed with SCIM provisioning setup?',
+    default: false
+  }]);
+
+  if (proceedWithScim) {
+    console.log(chalk.cyan('\n🔧 Setting up SCIM Provisioning...\n'));
+
+    // Open GitHub SCIM token creation page
+    const tokenUrl = `https://github.com/settings/tokens/new?scopes=scim:enterprise&description=SCIM%20Token%20for%20${config.enterprise}`;
+    console.log(chalk.cyan('🌐 Opening GitHub SCIM Token creation page...'));
+
+    try {
+      await open(tokenUrl);
+      console.log(chalk.green('✅ Browser opened to GitHub token creation page'));
+    } catch (openError) {
+      console.log(chalk.yellow('⚠️  Could not auto-open browser'));
+      console.log(chalk.gray(`   Please manually visit: ${tokenUrl}`));
+    }
+
+    console.log(chalk.yellow('📋 SCIM Token Generation:\n'));
+    console.log(chalk.gray('1. In the opened GitHub page:'));
+    console.log(chalk.gray('   • The token description and scopes are pre-filled'));
+    console.log(chalk.gray('   • Click "Generate token"'));
+    console.log(chalk.gray('   • Copy the generated token (you won\'t see it again)\n'));
+
+    console.log(chalk.yellow('📋 Manual SCIM Configuration Instructions:\n'));
+
+    // Display the SCIM endpoint for the user
+    const scimEndpoint = `https://api.github.com/scim/v2/enterprises/${config.enterprise}`;
+
+    console.log(chalk.yellow('� Step-by-Step SCIM Setup:'));
+    console.log(chalk.gray('2. Now configure SCIM in Entra ID:'));
+    console.log(chalk.yellow('🏢 Configure in Entra ID:'));
+    console.log(chalk.gray('   • Go to Azure Portal > Enterprise Applications'));
+    console.log(chalk.gray(`   • Find and open "${appConfig.displayName}"`));
+    console.log(chalk.gray('   • Click "Provisioning" in the left menu'));
+    console.log(chalk.gray('   • Click "Get started"'));
+    console.log(chalk.gray('   • Set Provisioning Mode to "Automatic"'));
+    console.log(chalk.gray('   • In Admin Credentials section:'));
+    console.log(chalk.gray(`     ○ Tenant URL: ${scimEndpoint}`));
+    console.log(chalk.gray('     ○ Secret Token: [Paste your GitHub SCIM token from above]'));
+    console.log(chalk.gray('   • Click "Test Connection" to verify'));
+    console.log(chalk.gray('   • Configure Settings as needed'));
+    console.log(chalk.gray('   • Click "Save" and then "Start provisioning"\n'));
+
+    console.log(chalk.yellow('⚠️  Important Notes:'));
+    console.log(chalk.gray('• Only configure SCIM after SSO is fully working'));
+    console.log(chalk.gray('• Test with a small group of users first'));
+    console.log(chalk.gray('• Monitor the first synchronization cycle for any issues\n'));
+  }
+  else {
+    console.log(chalk.yellow('\n📋 Setup instructions provided.'));
+    console.log(chalk.gray('Configure SCIM manually using the Azure Portal\n'));
+  }
+}
+
 // SCIM Provisioning Setup Method (currently disabled but preserved for future use)
 // This method contains the original interactive SCIM setup that was temporarily disabled
 // due to template selection issues. Can be re-enabled by calling this method instead of
 // showing manual instructions.
-async function setupInteractiveSCIM(azureService: AzureService, entraApp: any, config: any, appConfig: any) {
+async function setupScimProvisioningAutomated(azureService: AzureService, entraApp: any, config: any, appConfig: any) {
   const inquirer = await import('inquirer');
   
   console.log(chalk.cyan('\n🔄 SCIM Provisioning Setup:'));
-  console.log(chalk.yellow('After configuring SAML SSO in GitHub, you can set up automatic user provisioning.'));
+  console.log(chalk.yellow('After configuring SSO in GitHub, you can set up automatic user provisioning.'));
   
   const { setupScim } = await inquirer.default.prompt([{
     type: 'confirm',
@@ -311,15 +351,15 @@ async function setupInteractiveSCIM(azureService: AzureService, entraApp: any, c
   }]);
 
   if (setupScim) {
-    console.log(chalk.cyan('\n⏳ Waiting for GitHub SAML SSO configuration...'));
-    console.log(chalk.gray('Please complete the GitHub SAML SSO setup first, then return here.'));
+    console.log(chalk.cyan('\n⏳ Waiting for GitHub SSO configuration...'));
+    console.log(chalk.gray('Please complete the GitHub SSO setup first, then return here.'));
     console.log(chalk.gray('In GitHub Enterprise, go to Settings > Security > SCIM provisioning'));
     console.log(chalk.gray('Generate a SCIM token and record the value.'));
     
     const { continueScim } = await inquirer.default.prompt([{
       type: 'confirm',
       name: 'continueScim',
-      message: 'Have you completed GitHub SAML SSO setup and are ready to configure SCIM?',
+      message: 'Have you completed GitHub SSO setup and are ready to configure SCIM?',
       default: false
     }]);            
     
@@ -390,7 +430,7 @@ async function setupInteractiveSCIM(azureService: AzureService, entraApp: any, c
           
           if (startProvisioning) {
             console.log(chalk.yellow('⚠️  Warning: This will begin syncing users immediately.'));
-            console.log(chalk.yellow('   Ensure GitHub SAML SSO is working correctly first.'));
+            console.log(chalk.yellow('   Ensure GitHub SSO is working correctly first.'));
             
             const { confirmStart } = await inquirer.default.prompt([{
               type: 'confirm',
