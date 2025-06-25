@@ -1,4 +1,5 @@
 import { Client } from '@microsoft/microsoft-graph-client';
+import { getBaseUrls } from '../utils/envUrls';
 import { TokenCredential } from '@azure/identity';
 import chalk from 'chalk';
 
@@ -33,17 +34,7 @@ export class AzureService {
     });
   }
 
-  private getWebBase(enterpriseName: string) {
-    return this.envType === 'ghe.com'
-      ? `https://${enterpriseName}.ghe.com`
-      : 'https://github.com';
-  }
 
-  private getApiBase(enterpriseName: string) {
-    return this.envType === 'ghe.com'
-      ? `https://api.${enterpriseName}.ghe.com`
-      : 'https://api.github.com';
-  }
 
   async createGitHubEnterpriseApp(enterpriseName: string, ssoType: 'saml' | 'oidc' = 'saml'): Promise<EntraApp> {
     try {
@@ -216,8 +207,6 @@ export class AzureService {
         // STRICT: Do not allow fallback to custom apps - this breaks SCIM provisioning
         const templateName = ssoType === 'oidc' ? 'GitHub Enterprise Managed User (OIDC)' : 'GitHub Enterprise Managed User';
         console.log(chalk.red(`   ❌ ${templateName} template is required for SCIM provisioning`));
-        console.log(chalk.yellow('   Custom applications do not support automated SCIM provisioning.'));
-        console.log(chalk.gray(`   Please ensure the "${templateName}" template is available in your Azure tenant.`));
         throw new Error(`${templateName} template not found. This template is required for SCIM provisioning support.`);
       }
     } catch (error: any) {
@@ -229,10 +218,7 @@ export class AzureService {
       // STRICT: Do not fall back to custom SAML app creation for SCIM scenarios
       console.log(chalk.red(`   ❌ Template instantiation failed: ${error.message}`));
       console.log(chalk.red('   Cannot create GitHub Enterprise app without the proper gallery template.'));
-      console.log(chalk.yellow('   The "GitHub Enterprise Managed User" template is required for:'));
-      console.log(chalk.gray('     - SCIM user provisioning'));
-      console.log(chalk.gray('     - Proper synchronization templates'));
-      console.log(chalk.gray('     - GitHub Enterprise integration'));
+      console.log(chalk.yellow('   The "GitHub Enterprise Managed User" template is required.'));
       throw new Error(`GitHub Enterprise app creation failed: ${error.message}. Gallery template is required for SCIM support.`);
     }
   }
@@ -371,13 +357,11 @@ export class AzureService {
 
             if (applications.value && applications.value.length > 0) {
               const app = applications.value[0];
-              const webBase = this.getWebBase(enterpriseName);
-              const expectedEntityId = `${webBase}/enterprises/${enterpriseName}`;
-              const expectedReplyUrl = `${webBase}/enterprises/${enterpriseName}/saml/consume`;
-              
+              const { web } = getBaseUrls(this.envType, enterpriseName);
+              const expectedEntityId = `${web}/enterprises/${enterpriseName}`;
+              const expectedReplyUrl = `${web}/enterprises/${enterpriseName}/saml/consume`;
               const hasCorrectEntityId = app.identifierUris?.includes(expectedEntityId);
               const hasCorrectReplyUrl = app.web?.redirectUris?.includes(expectedReplyUrl);
-
               if (hasCorrectEntityId && hasCorrectReplyUrl) {
                 console.log(chalk.green(`   ✅ Found existing properly configured SAML app: ${sp.displayName}`));
                 console.log(chalk.gray(`     Entity ID: ${expectedEntityId}`));
@@ -386,7 +370,7 @@ export class AzureService {
                   id: sp.id,
                   appId: sp.appId,
                   displayName: sp.displayName
-                };              
+                };
               } else if (hasCorrectEntityId || hasCorrectReplyUrl) {
                 console.log(chalk.yellow(`   ⚠️  Found partially configured app: ${sp.displayName}`));
                 console.log(chalk.gray(`     Entity ID match: ${hasCorrectEntityId ? '✅' : '❌'}`));
@@ -447,9 +431,9 @@ export class AzureService {
       const currentApp = applications.value[0];
 
       // Check if this application already has the correct configuration
-      const webBase = this.getWebBase(enterpriseName);
-      const targetEntityId = `${webBase}/enterprises/${enterpriseName}`;
-      const targetReplyUrl = `${webBase}/enterprises/${enterpriseName}/saml/consume`;
+      const { web } = getBaseUrls(this.envType, enterpriseName);
+      const targetEntityId = `${web}/enterprises/${enterpriseName}`;
+      const targetReplyUrl = `${web}/enterprises/${enterpriseName}/saml/consume`;
       
       const hasCorrectEntityId = currentApp.identifierUris?.includes(targetEntityId);
       const hasCorrectReplyUrl = currentApp.web?.redirectUris?.includes(targetReplyUrl);
@@ -485,9 +469,6 @@ export class AzureService {
             console.log(chalk.gray('1. Delete the conflicting application(s) in Azure Portal if no longer needed'));
             console.log(chalk.gray('2. Use a different enterprise name for this setup'));
             console.log(chalk.gray('3. Reuse the existing application if it\'s for the same GitHub Enterprise'));
-            console.log(chalk.gray('\nTo delete applications:'));
-            console.log(chalk.gray('• Go to Azure Portal > Azure Active Directory > App registrations'));
-            console.log(chalk.gray('• Find and delete the conflicting application(s)'));
             
             throw new Error(`Cannot configure SAML: Entity ID '${targetEntityId}' is already in use by another application. Please resolve the conflict and try again.`);
           }
@@ -512,12 +493,13 @@ export class AzureService {
   private async configureSAMLWithUrls(applicationId: string, servicePrincipalId: string, enterpriseName: string, entityId: string, replyUrl: string): Promise<void> {
     // Configure SAML settings on the APPLICATION object first
     console.log(chalk.gray('   Setting application SAML configuration...'));
+    const { web } = getBaseUrls(this.envType, enterpriseName);
     await this.graphClient
       .api(`/applications/${applicationId}`)
       .patch({
         web: {
           redirectUris: [replyUrl],
-          logoutUrl: `${this.getWebBase(enterpriseName)}/enterprises/${enterpriseName}/saml/sls`
+          logoutUrl: `${web}/enterprises/${enterpriseName}/saml/sls`
         },
         identifierUris: [entityId]
       });
@@ -530,7 +512,7 @@ export class AzureService {
     await this.graphClient
       .api(`/servicePrincipals/${servicePrincipalId}`)
       .patch({
-        loginUrl: `${this.getWebBase(enterpriseName)}/enterprises/${enterpriseName}/sso`,
+        loginUrl: `${web}/enterprises/${enterpriseName}/sso`,
         preferredSingleSignOnMode: 'saml'
       });
 
@@ -560,7 +542,7 @@ export class AzureService {
         .patch({
           web: {
             redirectUris: [replyUrl],
-            logoutUrl: `${this.getWebBase(enterpriseName)}/enterprises/${enterpriseName}/saml/sls`
+            logoutUrl: `${web}/enterprises/${enterpriseName}/saml/sls`
           },
           identifierUris: [entityId]
         });
@@ -568,7 +550,7 @@ export class AzureService {
       await this.graphClient
         .api(`/servicePrincipals/${servicePrincipalId}`)
         .patch({
-          loginUrl: `${this.getWebBase(enterpriseName)}/enterprises/${enterpriseName}/sso`,
+          loginUrl: `${web}/enterprises/${enterpriseName}/sso`,
           preferredSingleSignOnMode: 'saml'
         });
     }
@@ -826,13 +808,9 @@ export class AzureService {
     
     console.log(chalk.yellow('Setup Steps:'));
     console.log(chalk.gray('1. Complete GitHub SAML SSO setup first'));
-    console.log(chalk.gray('2. In GitHub Enterprise, go to Settings > Security > SAML SSO'));
-    console.log(chalk.gray('3. Enable "Require SAML SSO authentication for all members"'));
-    console.log(chalk.gray('4. Go to Settings > Security > Team synchronization'));
-    console.log(chalk.gray('5. Enable team synchronization and get the SCIM endpoint URL'));
-    console.log(chalk.gray('6. Generate a SCIM token in GitHub'));
-    console.log(chalk.gray('7. Return to Azure AD > Enterprise Applications > Your GitHub App'));
-    console.log(chalk.gray('8. Configure provisioning with the SCIM endpoint and token\n'));  
+    console.log(chalk.gray('2. Generate a SCIM token in GitHub'));
+    console.log(chalk.gray('3. Return to Azure AD > Enterprise Applications > Your GitHub App'));
+    console.log(chalk.gray('4. Configure provisioning with the SCIM endpoint and token\n'));  
   }
   
   // Validate that the service principal is from the correct GitHub Enterprise gallery app
@@ -1280,12 +1258,14 @@ export class AzureService {
           const app = applications.value[0];
           const issues = [];
 
+          // Use getBaseUrls helper for both checks
+          const { web } = getBaseUrls(this.envType, enterpriseName);
           // Check identifier URIs (Entity ID)
           if (!app.identifierUris || app.identifierUris.length === 0) {
             issues.push('Missing Entity ID (identifier URIs)');
           } else {
             const hasGitHubEntityId = app.identifierUris.some((uri: string) => 
-              uri.includes(this.getWebBase(enterpriseName) + '/enterprises')
+              uri.includes(web + '/enterprises')
             );
             if (!hasGitHubEntityId) {
               issues.push('Entity ID does not match GitHub Enterprise format');
@@ -1297,7 +1277,7 @@ export class AzureService {
             issues.push('Missing Reply URLs');
           } else {
             const hasGitHubReplyUrl = app.web.redirectUris.some((uri: string) => 
-              uri.includes(this.getWebBase(enterpriseName) + '/enterprises') && uri.includes('/saml/consume')
+              uri.includes(web + '/enterprises') && uri.includes('/saml/consume')
             );
             if (!hasGitHubReplyUrl) {
               issues.push('Reply URL does not match GitHub Enterprise SAML consume URL');
@@ -1503,13 +1483,11 @@ export class AzureService {
       
       // Check SAML configuration
       if (application) {
-        const webBase = this.getWebBase(enterpriseName);
-        const expectedEntityId = `${webBase}/enterprises/${enterpriseName}`;
-        const expectedReplyUrl = `${webBase}/enterprises/${enterpriseName}/saml/consume`;
-        
+        const { web } = getBaseUrls(this.envType, enterpriseName);
+        const expectedEntityId = `${web}/enterprises/${enterpriseName}`;
+        const expectedReplyUrl = `${web}/enterprises/${enterpriseName}/saml/consume`;
         const hasCorrectEntityId = application.identifierUris?.includes(expectedEntityId);
         const hasCorrectReplyUrl = application.web?.redirectUris?.includes(expectedReplyUrl);
-        
         if (!hasCorrectEntityId) {
           recommendations.push(`Entity ID configuration may be incorrect - expected: ${expectedEntityId}`);
         }

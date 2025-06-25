@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { marked } from 'marked';
 import chalk from 'chalk';
+import { getBaseUrls } from '../utils/envUrls';
 
 interface TemplateVariables {
   [key: string]: string;
@@ -48,15 +49,8 @@ export class TemplateProcessor {
     outputPath?: string,
     envType: 'github.com' | 'ghe.com' = 'github.com'
   ): Promise<string> {
-    // Determine base URLs based on envType
-    let webBase: string, apiBase: string;
-    if (envType === 'ghe.com') {
-      webBase = `https://${enterpriseName}.ghe.com`;
-      apiBase = `https://api.${enterpriseName}.ghe.com`;
-    } else {
-      webBase = 'https://github.com';
-      apiBase = 'https://api.github.com';
-    }
+    // Use centralized helper for base URLs
+    const { web, api } = getBaseUrls(envType, enterpriseName);
     const templateName = ssoType === 'oidc' ? 'oidc-setup-plan.md' : 'saml-setup-plan.md';
     const templateContent = await this.processTemplate(templateName, {
       DATE: new Date().toLocaleString(),
@@ -65,14 +59,14 @@ export class TemplateProcessor {
       SSO_TYPE: ssoType.toUpperCase(),
       ENV_TYPE: envType,
       DISPLAY_NAME: `GitHub Enterprise ${ssoType.toUpperCase()} SSO - ${enterpriseName}`,
-      ENTITY_ID: `${webBase}/enterprises/${enterpriseName}`,
-      REPLY_URL: `${webBase}/enterprises/${enterpriseName}/saml/consume`,
-      SIGN_ON_URL: `${webBase}/enterprises/${enterpriseName}/sso`,
-      LOGOUT_URL: `${webBase}/enterprises/${enterpriseName}/saml/sls`,
-      GITHUB_SAML_URL: `${webBase}/enterprises/${enterpriseName}/settings/saml_provider/edit`,
-      GITHUB_TOKEN_URL: `${webBase}/settings/tokens/new?scopes=scim:enterprise&description=SCIM%20Token`,
-      GITHUB_SSO_CONFIG_URL: `${webBase}/enterprises/${enterpriseName}/settings/single_sign_on_configuration`,
-      SCIM_ENDPOINT: `${apiBase}/scim/v2/enterprises/${enterpriseName}/`
+      ENTITY_ID: `${web}/enterprises/${enterpriseName}`,
+      REPLY_URL: `${web}/enterprises/${enterpriseName}/saml/consume`,
+      SIGN_ON_URL: `${web}/enterprises/${enterpriseName}/sso`,
+      LOGOUT_URL: `${web}/enterprises/${enterpriseName}/saml/sls`,
+      GITHUB_SAML_URL: `${web}/enterprises/${enterpriseName}/settings/saml_provider/edit`,
+      GITHUB_TOKEN_URL: `${web}/settings/tokens/new?scopes=scim:enterprise&description=SCIM%20Token`,
+      GITHUB_SSO_CONFIG_URL: `${web}/enterprises/${enterpriseName}/settings/single_sign_on_configuration`,
+      SCIM_ENDPOINT: `${api}/scim/v2/enterprises/${enterpriseName}/`
     });
 
     // Convert to HTML

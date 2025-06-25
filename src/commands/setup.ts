@@ -1,3 +1,4 @@
+import { getBaseUrls, getScimEndpoint, getAppConfig } from '../utils/envUrls';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { AuthService } from '../services/auth';
@@ -93,21 +94,8 @@ class SetupCommandHandler {
       console.log(chalk.yellow('\n📋 Fallback: Basic Configuration Summary'));
       
       // Use envType to determine correct base URLs
-      let webBase: string, apiBase: string;
-      if ((config as any).envType === 'ghe.com') {
-        webBase = `https://${config.enterprise}.ghe.com`;
-        apiBase = `https://api.${config.enterprise}.ghe.com`;
-      } else {
-        webBase = 'https://github.com';
-        apiBase = 'https://api.github.com';
-      }
-      const appConfig = {
-        displayName: `GitHub Enterprise SSO - ${config.enterprise}`,
-        signOnUrl: `${webBase}/enterprises/${config.enterprise}/sso`,
-        entityId: `${webBase}/enterprises/${config.enterprise}`,
-        replyUrl: `${webBase}/enterprises/${config.enterprise}/saml/consume`
-      };
-      const scimEndpoint = `${apiBase}/scim/v2/enterprises/${config.enterprise}`;
+      const appConfig = getAppConfig(config.envType, config.enterprise, config.ssoType);
+      const scimEndpoint = getScimEndpoint(config.envType, config.enterprise);
 
       console.log(chalk.gray(`   Display Name: ${appConfig.displayName}`));
       console.log(chalk.gray(`   Sign-On URL: ${appConfig.signOnUrl}`));
@@ -182,32 +170,9 @@ export const setupCommand = new Command('setup')
       console.log(chalk.gray(`   Mode: ${options.plan ? 'PLAN' : 'LIVE'}\n`));      // We'll initialize Azure service after we get Azure credentials
       let azureService: AzureService | null = null;     
       
-      // Helper to get base URLs based on envType
-      function getBaseUrls(envType: string | undefined, enterprise: string) {
-        if (envType === 'ghe.com') {
-          return {
-            web: `https://${enterprise}.ghe.com`,
-            api: `https://api.${enterprise}.ghe.com`
-          };
-        } else {
-          return {
-            web: 'https://github.com',
-            api: 'https://api.github.com'
-          };
-        }
-      }
-
+      // Use centralized helpers for base URLs and appConfig
       const { web, api } = getBaseUrls(config.envType, config.enterprise);
-      const appConfig = {
-        displayName: config.ssoType === 'oidc'
-          ? `GitHub Enterprise Managed User (OIDC)`
-          : `GitHub Enterprise SAML SSO - ${config.enterprise}`,
-        signOnUrl: `${web}/enterprises/${config.enterprise}/sso`,
-        entityId: `${web}/enterprises/${config.enterprise}`,
-        replyUrl: config.ssoType === 'oidc'
-          ? `${web}/enterprises/${config.enterprise}/oauth/callback`
-          : `${web}/enterprises/${config.enterprise}/saml/consume`
-      };
+      const appConfig = getAppConfig(config.envType, config.enterprise, config.ssoType);
       
       if (options.plan) {
         await setupHandler.generateSetupPlan(config, options);
@@ -377,8 +342,9 @@ async function setupScimProvisioning(config: SetupConfig, appConfig: { displayNa
   if (proceedWithScim) {
     console.log(chalk.cyan('\n🔧 Setting up SCIM Provisioning...\n'));
 
-    // Open GitHub SCIM token creation page
-    const tokenUrl = `https://github.com/settings/tokens/new?scopes=scim:enterprise&description=SCIM%20Token%20for%20${config.enterprise}`;
+    // Open GitHub SCIM token creation page using helper for web base
+    const { web } = getBaseUrls(config.envType, config.enterprise);
+    const tokenUrl = `${web}/settings/tokens/new?scopes=scim:enterprise&description=SCIM%20Token%20for%20${config.enterprise}`;
     console.log(chalk.cyan('🌐 Opening GitHub SCIM Token creation page...'));
 
     try {
@@ -397,14 +363,8 @@ async function setupScimProvisioning(config: SetupConfig, appConfig: { displayNa
 
     console.log(chalk.yellow('📋 Manual SCIM Configuration Instructions:\n'));
 
-    // Display the SCIM endpoint for the user
-    let apiBase: string;
-    if ((config as any).envType === 'ghe.com') {
-      apiBase = `https://api.${config.enterprise}.ghe.com`;
-    } else {
-      apiBase = 'https://api.github.com';
-    }
-    const scimEndpoint = `${apiBase}/scim/v2/enterprises/${config.enterprise}`;
+    // Use helper for SCIM endpoint
+    const scimEndpoint = getScimEndpoint(config.envType, config.enterprise);
 
     console.log(chalk.yellow('� Step-by-Step SCIM Setup:'));
     console.log(chalk.gray('2. Now configure SCIM in Entra ID:'));
