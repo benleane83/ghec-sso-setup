@@ -18,9 +18,11 @@ interface SAMLConfig {
 export class AzureService {
   private graphClient: Client;
   private tenantDomain: string;
+  private envType: 'github.com' | 'ghe.com';
 
-  constructor(credential: TokenCredential, tenantDomain?: string) {
+  constructor(credential: TokenCredential, tenantDomain?: string, envType: 'github.com' | 'ghe.com' = 'github.com') {
     this.tenantDomain = tenantDomain || 'common';
+    this.envType = envType;
     this.graphClient = Client.initWithMiddleware({
       authProvider: {
         getAccessToken: async () => {
@@ -29,6 +31,18 @@ export class AzureService {
         }
       }
     });
+  }
+
+  private getWebBase(enterpriseName: string) {
+    return this.envType === 'ghe.com'
+      ? `https://${enterpriseName}.ghe.com`
+      : 'https://github.com';
+  }
+
+  private getApiBase(enterpriseName: string) {
+    return this.envType === 'ghe.com'
+      ? `https://api.${enterpriseName}.ghe.com`
+      : 'https://api.github.com';
   }
 
   async createGitHubEnterpriseApp(enterpriseName: string, ssoType: 'saml' | 'oidc' = 'saml'): Promise<EntraApp> {
@@ -105,7 +119,7 @@ export class AzureService {
           console.log(chalk.gray('   Step 3: Configuring SAML SSO mode...'));
           
           // Add delay to ensure service principal is fully created
-          await new Promise(resolve => setTimeout(resolve, 4000));
+          await new Promise(resolve => setTimeout(resolve, 5000));
           
           // Step 3: Set SAML as the SSO mode with retry logic
           let retryCount = 0;
@@ -357,8 +371,9 @@ export class AzureService {
 
             if (applications.value && applications.value.length > 0) {
               const app = applications.value[0];
-              const expectedEntityId = `https://github.com/enterprises/${enterpriseName}`;
-              const expectedReplyUrl = `https://github.com/enterprises/${enterpriseName}/saml/consume`;
+              const webBase = this.getWebBase(enterpriseName);
+              const expectedEntityId = `${webBase}/enterprises/${enterpriseName}`;
+              const expectedReplyUrl = `${webBase}/enterprises/${enterpriseName}/saml/consume`;
               
               const hasCorrectEntityId = app.identifierUris?.includes(expectedEntityId);
               const hasCorrectReplyUrl = app.web?.redirectUris?.includes(expectedReplyUrl);
@@ -432,8 +447,9 @@ export class AzureService {
       const currentApp = applications.value[0];
 
       // Check if this application already has the correct configuration
-      const targetEntityId = `https://github.com/enterprises/${enterpriseName}`;
-      const targetReplyUrl = `https://github.com/enterprises/${enterpriseName}/saml/consume`;
+      const webBase = this.getWebBase(enterpriseName);
+      const targetEntityId = `${webBase}/enterprises/${enterpriseName}`;
+      const targetReplyUrl = `${webBase}/enterprises/${enterpriseName}/saml/consume`;
       
       const hasCorrectEntityId = currentApp.identifierUris?.includes(targetEntityId);
       const hasCorrectReplyUrl = currentApp.web?.redirectUris?.includes(targetReplyUrl);
@@ -501,7 +517,7 @@ export class AzureService {
       .patch({
         web: {
           redirectUris: [replyUrl],
-          logoutUrl: `https://github.com/enterprises/${enterpriseName}/saml/sls`
+          logoutUrl: `${this.getWebBase(enterpriseName)}/enterprises/${enterpriseName}/saml/sls`
         },
         identifierUris: [entityId]
       });
@@ -514,7 +530,7 @@ export class AzureService {
     await this.graphClient
       .api(`/servicePrincipals/${servicePrincipalId}`)
       .patch({
-        loginUrl: `https://github.com/enterprises/${enterpriseName}/sso`,
+        loginUrl: `${this.getWebBase(enterpriseName)}/enterprises/${enterpriseName}/sso`,
         preferredSingleSignOnMode: 'saml'
       });
 
@@ -544,7 +560,7 @@ export class AzureService {
         .patch({
           web: {
             redirectUris: [replyUrl],
-            logoutUrl: `https://github.com/enterprises/${enterpriseName}/saml/sls`
+            logoutUrl: `${this.getWebBase(enterpriseName)}/enterprises/${enterpriseName}/saml/sls`
           },
           identifierUris: [entityId]
         });
@@ -552,7 +568,7 @@ export class AzureService {
       await this.graphClient
         .api(`/servicePrincipals/${servicePrincipalId}`)
         .patch({
-          loginUrl: `https://github.com/enterprises/${enterpriseName}/sso`,
+          loginUrl: `${this.getWebBase(enterpriseName)}/enterprises/${enterpriseName}/sso`,
           preferredSingleSignOnMode: 'saml'
         });
     }
@@ -1218,7 +1234,7 @@ export class AzureService {
   /**
    * Validates the SAML configuration for GitHub Enterprise applications
    */  
-  async validateSAMLConfig(): Promise<{ success: boolean; message: string }> {
+  async validateSAMLConfig(enterpriseName: string): Promise<{ success: boolean; message: string }> {
     try {
       // Get all service principals and filter client-side
       const servicePrincipals = await this.graphClient
@@ -1269,7 +1285,7 @@ export class AzureService {
             issues.push('Missing Entity ID (identifier URIs)');
           } else {
             const hasGitHubEntityId = app.identifierUris.some((uri: string) => 
-              uri.includes('github.com/enterprises')
+              uri.includes(this.getWebBase(enterpriseName) + '/enterprises')
             );
             if (!hasGitHubEntityId) {
               issues.push('Entity ID does not match GitHub Enterprise format');
@@ -1281,7 +1297,7 @@ export class AzureService {
             issues.push('Missing Reply URLs');
           } else {
             const hasGitHubReplyUrl = app.web.redirectUris.some((uri: string) => 
-              uri.includes('github.com/enterprises') && uri.includes('/saml/consume')
+              uri.includes(this.getWebBase(enterpriseName) + '/enterprises') && uri.includes('/saml/consume')
             );
             if (!hasGitHubReplyUrl) {
               issues.push('Reply URL does not match GitHub Enterprise SAML consume URL');
@@ -1487,8 +1503,9 @@ export class AzureService {
       
       // Check SAML configuration
       if (application) {
-        const expectedEntityId = `https://github.com/enterprises/${enterpriseName}`;
-        const expectedReplyUrl = `https://github.com/enterprises/${enterpriseName}/saml/consume`;
+        const webBase = this.getWebBase(enterpriseName);
+        const expectedEntityId = `${webBase}/enterprises/${enterpriseName}`;
+        const expectedReplyUrl = `${webBase}/enterprises/${enterpriseName}/saml/consume`;
         
         const hasCorrectEntityId = application.identifierUris?.includes(expectedEntityId);
         const hasCorrectReplyUrl = application.web?.redirectUris?.includes(expectedReplyUrl);

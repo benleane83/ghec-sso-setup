@@ -16,6 +16,7 @@ interface SetupConfig {
   enterprise: string;
   domain?: string;
   ssoType: 'saml' | 'oidc';
+  envType?: 'github.com' | 'ghe.com';
 }
 
 class SetupCommandHandler {
@@ -32,6 +33,7 @@ class SetupCommandHandler {
           config.enterprise, 
           config.domain || 'common',
           config.ssoType,
+          config.envType,
           options.planOutput
         );
       } else {
@@ -39,7 +41,8 @@ class SetupCommandHandler {
         planPath = await templateProcessor.generateHtmlSetupPlanToDesktop(
           config.enterprise, 
           config.domain || 'common',
-          config.ssoType
+          config.ssoType,
+          config.envType
         );
       }
       
@@ -48,6 +51,7 @@ class SetupCommandHandler {
       console.log(chalk.gray(`   Enterprise: ${config.enterprise}`));
       console.log(chalk.gray(`   Domain: ${config.domain || 'common (default tenant)'}`));
       console.log(chalk.gray(`   SSO Type: ${config.ssoType.toUpperCase()}`));
+      console.log(chalk.gray(`   Env Type: ${config.envType}`));
       console.log(chalk.gray(`   Format: HTML`));
       console.log(chalk.gray(`   File: ${planPath}\n`));
       
@@ -88,18 +92,28 @@ class SetupCommandHandler {
       console.log(chalk.red(`❌ Failed to generate setup plan: ${error.message}`));
       console.log(chalk.yellow('\n📋 Fallback: Basic Configuration Summary'));
       
+      // Use envType to determine correct base URLs
+      let webBase: string, apiBase: string;
+      if ((config as any).envType === 'ghe.com') {
+        webBase = `https://${config.enterprise}.ghe.com`;
+        apiBase = `https://api.${config.enterprise}.ghe.com`;
+      } else {
+        webBase = 'https://github.com';
+        apiBase = 'https://api.github.com';
+      }
       const appConfig = {
         displayName: `GitHub Enterprise SSO - ${config.enterprise}`,
-        signOnUrl: `https://github.com/enterprises/${config.enterprise}/sso`,
-        entityId: `https://github.com/enterprises/${config.enterprise}`,
-        replyUrl: `https://github.com/enterprises/${config.enterprise}/saml/consume`
+        signOnUrl: `${webBase}/enterprises/${config.enterprise}/sso`,
+        entityId: `${webBase}/enterprises/${config.enterprise}`,
+        replyUrl: `${webBase}/enterprises/${config.enterprise}/saml/consume`
       };
-      
+      const scimEndpoint = `${apiBase}/scim/v2/enterprises/${config.enterprise}`;
+
       console.log(chalk.gray(`   Display Name: ${appConfig.displayName}`));
       console.log(chalk.gray(`   Sign-On URL: ${appConfig.signOnUrl}`));
       console.log(chalk.gray(`   Entity ID: ${appConfig.entityId}`));
       console.log(chalk.gray(`   Reply URL: ${appConfig.replyUrl}`));
-      console.log(chalk.gray(`   SCIM Endpoint: https://api.github.com/scim/v2/enterprises/${config.enterprise}/\n`));
+      console.log(chalk.gray(`   SCIM Endpoint: ${scimEndpoint}\n`));
     }
   }
 }
@@ -110,13 +124,15 @@ interface SetupConfig {
   enterprise: string;
   domain?: string;
   ssoType: 'saml' | 'oidc';
+  envType?: 'github.com' | 'ghe.com';
 }
 
 export const setupCommand = new Command('setup')
-  .description('Setup GitHub Enterprise Cloud SSO with Entra ID')  
-  .option('-e, --enterprise <n>', 'GitHub Enterprise slug (e.g. for github.com/enterprises/my-company, use my-company)')
+  .description('Setup GitHub Enterprise Cloud SSO with Entra ID')
+  .option('-e, --enterprise <n>', 'GitHub Enterprise slug (e.g. for /enterprises/my-company, use my-company)')
   .option('-d, --domain [domain]', 'Your organizations Entra domain (optional - e.g. company.onmicrosoft.com)')
   .option('--ssoType <type>', 'SSO protocol type: saml (default) or oidc', 'saml')
+  .option('--envType <type>', 'Target environment: github.com (default) or ghe.com', 'github.com')
   .option('--plan', 'Generate a comprehensive HTML setup plan without making changes')
   .option('--plan-output [path]', 'Custom output path for the setup plan (only with --plan)')
   .action(async (options) => {    console.log(chalk.blue.bold('🚀 GitHub Enterprise Cloud SSO Setup\n'));
@@ -126,7 +142,8 @@ export const setupCommand = new Command('setup')
       if (options.ssoType && !['saml', 'oidc'].includes(options.ssoType.toLowerCase())) {
         console.log(chalk.red('❌ Invalid SSO type. Must be either "saml" or "oidc"'));
         return;
-      }      const ssoType = (options.ssoType || 'saml').toLowerCase();
+      }      
+      const ssoType = (options.ssoType || 'saml').toLowerCase();
 
       // Validate authentication
       const authService = new AuthService();
@@ -136,7 +153,8 @@ export const setupCommand = new Command('setup')
       let config: SetupConfig = {
         enterprise: options.enterprise,
         domain: options.domain,
-        ssoType: ssoType as 'saml' | 'oidc'
+        ssoType: ssoType as 'saml' | 'oidc',
+        envType: (options.envType || 'github.com')
       };
       
       // Prompt for missing configuration
@@ -160,19 +178,36 @@ export const setupCommand = new Command('setup')
       console.log(chalk.gray(`   Enterprise: ${config.enterprise}`));
       console.log(chalk.gray(`   Domain: ${config.domain || 'common (default tenant)'}`));
       console.log(chalk.gray(`   SSO Type: ${config.ssoType.toUpperCase()}`));
+      console.log(chalk.gray(`   Env Type: ${config.envType}`));
       console.log(chalk.gray(`   Mode: ${options.plan ? 'PLAN' : 'LIVE'}\n`));      // We'll initialize Azure service after we get Azure credentials
       let azureService: AzureService | null = null;     
       
+      // Helper to get base URLs based on envType
+      function getBaseUrls(envType: string | undefined, enterprise: string) {
+        if (envType === 'ghe.com') {
+          return {
+            web: `https://${enterprise}.ghe.com`,
+            api: `https://api.${enterprise}.ghe.com`
+          };
+        } else {
+          return {
+            web: 'https://github.com',
+            api: 'https://api.github.com'
+          };
+        }
+      }
+
+      const { web, api } = getBaseUrls(config.envType, config.enterprise);
       const appConfig = {
-        displayName: config.ssoType === 'oidc' 
+        displayName: config.ssoType === 'oidc'
           ? `GitHub Enterprise Managed User (OIDC)`
           : `GitHub Enterprise SAML SSO - ${config.enterprise}`,
-        signOnUrl: `https://github.com/enterprises/${config.enterprise}/sso`,
-        entityId: `https://github.com/enterprises/${config.enterprise}`,
-        replyUrl: config.ssoType === 'oidc' 
-          ? `https://github.com/enterprises/${config.enterprise}/oauth/callback`
-          : `https://github.com/enterprises/${config.enterprise}/saml/consume`
-      };      
+        signOnUrl: `${web}/enterprises/${config.enterprise}/sso`,
+        entityId: `${web}/enterprises/${config.enterprise}`,
+        replyUrl: config.ssoType === 'oidc'
+          ? `${web}/enterprises/${config.enterprise}/oauth/callback`
+          : `${web}/enterprises/${config.enterprise}/saml/consume`
+      };
       
       if (options.plan) {
         await setupHandler.generateSetupPlan(config, options);
@@ -192,7 +227,7 @@ export const setupCommand = new Command('setup')
           console.log(chalk.gray('   • This is required to consent to the automatic app installation\n'));
           
           // Open GitHub OIDC configuration page
-          const githubOidcUrl = `https://github.com/enterprises/${config.enterprise}/settings/single_sign_on_configuration`;
+          const githubOidcUrl = `${web}/enterprises/${config.enterprise}/settings/single_sign_on_configuration`;
           console.log(chalk.cyan('🌐 Opening GitHub Enterprise OIDC configuration page...'));
           try {
             await open(githubOidcUrl);
@@ -232,7 +267,11 @@ export const setupCommand = new Command('setup')
             console.log(chalk.cyan('🔍 Step 1: Getting Azure credentials...'));
             try {
               const azureCredential = await authService.authenticateAzure(config.domain);
-              azureService = new AzureService(azureCredential, config.domain);
+              azureService = new AzureService(
+                azureCredential,
+                config.domain,
+                config.envType || 'github.com'
+              );
               console.log(chalk.green('✅ Azure authentication validated\n'));
             } 
             catch (error: any) {
@@ -276,7 +315,7 @@ export const setupCommand = new Command('setup')
             console.log(chalk.white(`   ${certificate}\n`));
             
             // Open GitHub SAML configuration page
-            const githubSamlUrl = `https://github.com/enterprises/${config.enterprise}/settings/saml_provider/edit`;
+            const githubSamlUrl = `${web}/enterprises/${config.enterprise}/settings/saml_provider/edit`;
             console.log(chalk.cyan('🌐 Opening GitHub Enterprise SAML configuration page...'));
             try {
               await open(githubSamlUrl);
@@ -359,7 +398,13 @@ async function setupScimProvisioning(config: SetupConfig, appConfig: { displayNa
     console.log(chalk.yellow('📋 Manual SCIM Configuration Instructions:\n'));
 
     // Display the SCIM endpoint for the user
-    const scimEndpoint = `https://api.github.com/scim/v2/enterprises/${config.enterprise}`;
+    let apiBase: string;
+    if ((config as any).envType === 'ghe.com') {
+      apiBase = `https://api.${config.enterprise}.ghe.com`;
+    } else {
+      apiBase = 'https://api.github.com';
+    }
+    const scimEndpoint = `${apiBase}/scim/v2/enterprises/${config.enterprise}`;
 
     console.log(chalk.yellow('� Step-by-Step SCIM Setup:'));
     console.log(chalk.gray('2. Now configure SCIM in Entra ID:'));

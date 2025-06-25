@@ -42,25 +42,37 @@ export class TemplateProcessor {
    * Generate HTML setup plan file
    */
   async generateHtmlSetupPlan(
-    enterpriseName: string, 
+    enterpriseName: string,
     domain: string = 'common',
     ssoType: string = 'saml',
-    outputPath?: string  ): Promise<string> {    // Generate the template content
+    outputPath?: string,
+    envType: 'github.com' | 'ghe.com' = 'github.com'
+  ): Promise<string> {
+    // Determine base URLs based on envType
+    let webBase: string, apiBase: string;
+    if (envType === 'ghe.com') {
+      webBase = `https://${enterpriseName}.ghe.com`;
+      apiBase = `https://api.${enterpriseName}.ghe.com`;
+    } else {
+      webBase = 'https://github.com';
+      apiBase = 'https://api.github.com';
+    }
     const templateName = ssoType === 'oidc' ? 'oidc-setup-plan.md' : 'saml-setup-plan.md';
     const templateContent = await this.processTemplate(templateName, {
       DATE: new Date().toLocaleString(),
       ENTERPRISE_NAME: enterpriseName,
       DOMAIN: domain === 'common' ? 'your organization domain (e.g., company.onmicrosoft.com)' : domain,
       SSO_TYPE: ssoType.toUpperCase(),
+      ENV_TYPE: envType,
       DISPLAY_NAME: `GitHub Enterprise ${ssoType.toUpperCase()} SSO - ${enterpriseName}`,
-      ENTITY_ID: `https://github.com/enterprises/${enterpriseName}`,
-      REPLY_URL: `https://github.com/enterprises/${enterpriseName}/saml/consume`,
-      SIGN_ON_URL: `https://github.com/enterprises/${enterpriseName}/sso`,
-      LOGOUT_URL: `https://github.com/enterprises/${enterpriseName}/saml/sls`,
-      GITHUB_SAML_URL: `https://github.com/enterprises/${enterpriseName}/settings/saml_provider/edit`,
-      GITHUB_TOKEN_URL: `https://github.com/settings/tokens/new?scopes=scim:enterprise&description=SCIM%20Token`,
-      GITHUB_SSO_CONFIG_URL: `https://github.com/enterprises/${enterpriseName}/settings/single_sign_on_configuration`,
-      SCIM_ENDPOINT: `https://api.github.com/scim/v2/enterprises/${enterpriseName}/`
+      ENTITY_ID: `${webBase}/enterprises/${enterpriseName}`,
+      REPLY_URL: `${webBase}/enterprises/${enterpriseName}/saml/consume`,
+      SIGN_ON_URL: `${webBase}/enterprises/${enterpriseName}/sso`,
+      LOGOUT_URL: `${webBase}/enterprises/${enterpriseName}/saml/sls`,
+      GITHUB_SAML_URL: `${webBase}/enterprises/${enterpriseName}/settings/saml_provider/edit`,
+      GITHUB_TOKEN_URL: `${webBase}/settings/tokens/new?scopes=scim:enterprise&description=SCIM%20Token`,
+      GITHUB_SSO_CONFIG_URL: `${webBase}/enterprises/${enterpriseName}/settings/single_sign_on_configuration`,
+      SCIM_ENDPOINT: `${apiBase}/scim/v2/enterprises/${enterpriseName}/`
     });
 
     // Convert to HTML
@@ -96,17 +108,23 @@ export class TemplateProcessor {
   /**
    * Generate HTML setup plan to user's desktop
    */
-  async generateHtmlSetupPlanToDesktop(enterpriseName: string, domain: string = 'common', ssoType: string = 'saml'): Promise<string> {
+  async generateHtmlSetupPlanToDesktop(
+    enterpriseName: string,
+    domain: string = 'common',
+    ssoType: string = 'saml',
+    envType: 'github.com' | 'ghe.com' = 'github.com'
+  ): Promise<string> {
     const filename = this.getDefaultHtmlFilename(enterpriseName);
     const desktopPath = this.getDesktopPath();
-    const fullPath = path.join(desktopPath, filename);    try {
-      await this.generateHtmlSetupPlan(enterpriseName, domain, ssoType, fullPath);
+    const fullPath = path.join(desktopPath, filename);
+    try {
+      await this.generateHtmlSetupPlan(enterpriseName, domain, ssoType, fullPath, envType);
       return fullPath;
     } catch (error) {
       // Fallback to current directory if desktop is not accessible
       const fallbackPath = path.join(process.cwd(), filename);
       console.log(chalk.yellow('Could not save to desktop, trying current directory...'));
-      await this.generateHtmlSetupPlan(enterpriseName, domain, ssoType, fallbackPath);
+      await this.generateHtmlSetupPlan(enterpriseName, domain, ssoType, fallbackPath, envType);
       return fallbackPath;
     }
   }

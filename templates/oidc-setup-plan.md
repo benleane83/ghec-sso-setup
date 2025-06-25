@@ -4,6 +4,7 @@
 **Enterprise:** {{ENTERPRISE_NAME}}  
 **Domain:** {{DOMAIN}}  
 **SSO Type:** {{SSO_TYPE}}
+**Env Type:** {{ENV_TYPE}}
 
 ## Overview
 

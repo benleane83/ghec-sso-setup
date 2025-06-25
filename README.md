@@ -100,6 +100,7 @@ Options:
   --plan                    Generate a HTML plan document with customized instructions for configuration
   --plan-output <path>      Custom output path for the setup plan (only with --plan)
   --ssoType <type>          SSO protocol type: saml (default) or oidc
+  --envType <type>          GitHub environment type: github.com (default) or ghe.com
 
 ```
 
@@ -142,6 +143,7 @@ ghec-sso auth logout
 ### `ghec-sso validate`
 
 Validate enterprise access and SSO prerequisites.
+Only supports SAML SSO currently and not OIDC.
 
 ```bash
 # Validate specific enterprise  
@@ -202,7 +204,7 @@ The CLI uses different authentication methods optimized for enterprise access:
 ## Important Notes
 
 ### GitHub Enterprise Types
-- ✅ **GitHub Enterprise Cloud** - Fully supported
+- ✅ **GitHub Enterprise Cloud** - Fully supported (Github.com or GHE.com)
 - ✅ **Trial Enterprises** - Fully supported
 - ❌ **GitHub Enterprise Server** - Not supported
 - ❌ **Organizations** - Not supported (use organization SAML instead)
