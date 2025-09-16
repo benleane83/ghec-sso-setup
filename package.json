@@ -55,7 +55,7 @@
   "pkg": {
     "assets": [
       "node_modules/open/xdg-open",
-      "dist/templates/**/*"
+      "templates/*.md"
     ]
   },
   "keywords": [
