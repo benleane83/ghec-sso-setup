@@ -34,12 +34,12 @@ class SetupCommandHandler {
           config.enterprise, 
           config.domain || 'common',
           config.ssoType,
-          config.envType,
-          options.planOutput
+          options.planOutput,
+          config.envType
         );
       } else {
-        // Generate to desktop with default filename
-        planPath = await templateProcessor.generateHtmlSetupPlanToDesktop(
+        // Generate to current working directory with default filename
+        planPath = await templateProcessor.generateHtmlSetupPlanToCwd(
           config.enterprise, 
           config.domain || 'common',
           config.ssoType,

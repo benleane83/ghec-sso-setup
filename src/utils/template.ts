@@ -76,11 +76,22 @@ export class TemplateProcessor {
     if (!outputPath) {
       const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-');
       outputPath = path.join(process.cwd(), `github-sso-setup-plan-${enterpriseName}-${timestamp}.html`);
+    } else {
+      // If outputPath is a directory, append default filename
+      let stat;
+      try {
+        stat = fs.existsSync(outputPath) ? fs.statSync(outputPath) : null;
+      } catch {
+        stat = null;
+      }
+      if (stat && stat.isDirectory()) {
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-');
+        outputPath = path.join(outputPath, `github-sso-setup-plan-${enterpriseName}-${timestamp}.html`);
+      }
     }
 
     // Write the HTML file
     fs.writeFileSync(outputPath, htmlContent, 'utf-8');
-    
     return outputPath;
   }
   /**
@@ -100,27 +111,18 @@ export class TemplateProcessor {
   }
 
   /**
-   * Generate HTML setup plan to user's desktop
+   * Generate HTML setup plan to current working directory
    */
-  async generateHtmlSetupPlanToDesktop(
+  async generateHtmlSetupPlanToCwd(
     enterpriseName: string,
     domain: string = 'common',
     ssoType: string = 'saml',
     envType: 'github.com' | 'ghe.com' = 'github.com'
   ): Promise<string> {
     const filename = this.getDefaultHtmlFilename(enterpriseName);
-    const desktopPath = this.getDesktopPath();
-    const fullPath = path.join(desktopPath, filename);
-    try {
-      await this.generateHtmlSetupPlan(enterpriseName, domain, ssoType, fullPath, envType);
-      return fullPath;
-    } catch (error) {
-      // Fallback to current directory if desktop is not accessible
-      const fallbackPath = path.join(process.cwd(), filename);
-      console.log(chalk.yellow('Could not save to desktop, trying current directory...'));
-      await this.generateHtmlSetupPlan(enterpriseName, domain, ssoType, fallbackPath, envType);
-      return fallbackPath;
-    }
+    const fullPath = path.join(process.cwd(), filename);
+    await this.generateHtmlSetupPlan(enterpriseName, domain, ssoType, fullPath, envType);
+    return fullPath;
   }
   /**
    * Convert template content to HTML with styling
