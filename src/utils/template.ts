@@ -1,3 +1,12 @@
+// Add type for process.pkg for TypeScript compatibility
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace NodeJS {
+    interface Process {
+      pkg?: any;
+    }
+  }
+}
 import * as fs from 'fs';
 import * as path from 'path';
 import { marked } from 'marked';
@@ -12,8 +21,14 @@ export class TemplateProcessor {
   private templateDir: string;
 
   constructor() {
-    // Get the template directory relative to the built dist folder
-    this.templateDir = path.join(__dirname, '..', '..', 'templates');
+    // Support for pkg: if running as a packaged binary, templates are next to the executable or in a known location
+    if (typeof process.pkg !== 'undefined') {
+      // When packaged, __dirname points inside the virtual filesystem, so use process.execPath
+      this.templateDir = path.join(path.dirname(process.execPath), 'templates');
+    } else {
+      // When running from source, use relative path from source tree
+      this.templateDir = path.join(__dirname, '..', '..', 'templates');
+    }
   }
 
   /**
@@ -22,19 +37,25 @@ export class TemplateProcessor {
   async processTemplate(templateName: string, variables: TemplateVariables): Promise<string> {
     try {
       const templatePath = path.join(this.templateDir, templateName);
-      
-      if (!fs.existsSync(templatePath)) {
-        throw new Error(`Template file not found: ${templatePath}`);
+      let content;
+      if (typeof process.pkg !== 'undefined') {
+        // In pkg, fs.existsSync may not work as expected for assets, so just try to read
+        try {
+          content = fs.readFileSync(templatePath, 'utf-8');
+        } catch (err) {
+          throw new Error(`Template file not found (pkg): ${templatePath}`);
+        }
+      } else {
+        if (!fs.existsSync(templatePath)) {
+          throw new Error(`Template file not found: ${templatePath}`);
+        }
+        content = fs.readFileSync(templatePath, 'utf-8');
       }
-
-      let content = fs.readFileSync(templatePath, 'utf-8');
-      
       // Replace all {{VARIABLE}} placeholders with actual values
       for (const [key, value] of Object.entries(variables)) {
         const placeholder = `{{${key}}}`;
         content = content.replace(new RegExp(placeholder, 'g'), value);
       }
-
       return content;
     } catch (error: any) {
       throw new Error(`Failed to process template ${templateName}: ${error.message}`);
