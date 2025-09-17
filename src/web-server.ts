@@ -1,6 +1,20 @@
+
 import express from 'express';
 import path from 'path';
 import { TemplateProcessor } from './utils/template';
+import appInsights from 'applicationinsights';
+
+// Initialize Application Insights if INSTRUMENTATION_KEY or CONNECTION_STRING is set
+const aiKey = process.env.APPINSIGHTS_INSTRUMENTATIONKEY || process.env.APPLICATIONINSIGHTS_CONNECTION_STRING;
+let aiClient = undefined;
+if (aiKey) {
+    appInsights.setup(aiKey)
+        .setAutoCollectConsole(true, true)
+        .setSendLiveMetrics(false)
+        .start();
+    console.log('Application Insights enabled');
+    aiClient = appInsights.defaultClient;
+}
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -174,7 +188,7 @@ app.get('/', (req, res) => {
     <div class="container">
         <div class="header">
             <h1>🚀 SSO Setup Plan Generator</h1>
-            <p>Generate comprehensive setup plans for GitHub Enterprise Cloud SSO</p>
+            <p>Generate custom setup plans for GitHub Enterprise Cloud SSO</p>
         </div>
         
         <div class="form-container">
@@ -203,7 +217,7 @@ app.get('/', (req, res) => {
                     <label for="envType">Environment Type <span class="required">*</span></label>
                     <select id="envType" name="envType" required>
                         <option value="github.com" selected>github.com</option>
-                        <option value="ghe.com">ghe.com (GitHub Enterprise Server)</option>
+                        <option value="ghe.com">ghe.com (GitHub Enterprise with Data Residency)</option>
                     </select>
                     <div class="form-help">
                         Target GitHub environment
@@ -289,48 +303,63 @@ app.get('/', (req, res) => {
 
 // API endpoint to generate the setup plan
 app.post('/api/generate-plan', async (req, res) => {
-  try {
-    const { enterpriseName, ssoType, envType, domain } = req.body;
-    
-    // Validate required fields
-    if (!enterpriseName || !ssoType || !envType) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    try {
+        const { enterpriseName, ssoType, envType, domain } = req.body;
+
+        // Validate required fields
+        if (!enterpriseName || !ssoType || !envType) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        // Validate field values
+        if (!['saml', 'oidc'].includes(ssoType)) {
+            return res.status(400).json({ error: 'Invalid SSO type' });
+        }
+
+        if (!['github.com', 'ghe.com'].includes(envType)) {
+            return res.status(400).json({ error: 'Invalid environment type' });
+        }
+
+        const templateProcessor = new TemplateProcessor();
+
+        // Generate HTML content using the same logic as CLI
+        const htmlContent = await templateProcessor.generateHtmlSetupPlanContent(
+            enterpriseName,
+            domain || 'common',
+            ssoType,
+            envType as 'github.com' | 'ghe.com'
+        );
+
+        // Log event to Application Insights if enabled
+        if (aiClient) {
+            aiClient.trackEvent({
+                name: 'PlanGenerated',
+                properties: {
+                    enterpriseName,
+                    ssoType,
+                    envType,
+                    domain: domain || 'common',
+                    timestamp: new Date().toISOString(),
+                    source: 'web-server'
+                }
+            });
+        }
+
+        // Create filename
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-');
+        const filename = `github-sso-setup-plan-${enterpriseName}-${timestamp}.html`;
+
+        // Set headers for file download
+        res.setHeader('Content-Type', 'text/html');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+        // Send the HTML content
+        res.send(htmlContent);
+
+    } catch (error: any) {
+        console.error('Error generating plan:', error);
+        res.status(500).json({ error: 'Failed to generate setup plan: ' + error.message });
     }
-    
-    // Validate field values
-    if (!['saml', 'oidc'].includes(ssoType)) {
-      return res.status(400).json({ error: 'Invalid SSO type' });
-    }
-    
-    if (!['github.com', 'ghe.com'].includes(envType)) {
-      return res.status(400).json({ error: 'Invalid environment type' });
-    }
-    
-    const templateProcessor = new TemplateProcessor();
-    
-    // Generate HTML content using the same logic as CLI
-    const htmlContent = await templateProcessor.generateHtmlSetupPlanContent(
-      enterpriseName,
-      domain || 'common',
-      ssoType,
-      envType as 'github.com' | 'ghe.com'
-    );
-    
-    // Create filename
-    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-');
-    const filename = `github-sso-setup-plan-${enterpriseName}-${timestamp}.html`;
-    
-    // Set headers for file download
-    res.setHeader('Content-Type', 'text/html');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    
-    // Send the HTML content
-    res.send(htmlContent);
-    
-  } catch (error: any) {
-    console.error('Error generating plan:', error);
-    res.status(500).json({ error: 'Failed to generate setup plan: ' + error.message });
-  }
 });
 
 // Health check endpoint
