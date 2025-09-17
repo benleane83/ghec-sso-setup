@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Enterprise SSO Setup Plan - web-ui-test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #fff;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+        }
+        
+        h2 {
+            color: #34495e;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 8px;
+            margin-top: 40px;
+            margin-bottom: 20px;
+        }
+        
+        h3 {
+            color: #2980b9;
+            margin-top: 30px;
+            margin-bottom: 15px;
+        }
+        
+        code {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 3px;
+            padding: 2px 6px;
+            font-family: 'Monaco', 'Consolas', 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        pre {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 5px;
+            padding: 15px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+        
+        pre code {
+            background: none;
+            border: none;
+            padding: 0;
+        }
+        
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 20px 0;
+            background-color: #fff;
+        }
+        
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #f2f2f2;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        ul, ol {
+            margin: 15px 0;
+            padding-left: 30px;
+        }
+        
+        li {
+            margin: 8px 0;
+        }
+        
+        blockquote {
+            border-left: 4px solid #3498db;
+            padding-left: 20px;
+            margin: 20px 0;
+            background-color: #f8f9fa;
+            padding: 15px 20px;
+            border-radius: 0 5px 5px 0;
+        }
+        
+        .checkbox-list {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .checkbox-list li {
+            margin: 10px 0;
+            padding-left: 25px;
+            position: relative;
+        }
+        
+        .checkbox-list li:before {
+            content: '☐';
+            position: absolute;
+            left: 0;
+            font-size: 16px;
+            color: #7f8c8d;
+        }
+        
+        .note {
+            background-color: #e8f4fd;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 0 5px 5px 0;
+        }
+        
+        .warning {
+            background-color: #fef9e7;
+            border-left: 4px solid #f39c12;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 0 5px 5px 0;
+        }
+        
+        @media (max-width: 768px) {
+            body {
+                padding: 15px;
+            }
+            
+            table {
+                font-size: 14px;
+            }
+            
+            th, td {
+                padding: 8px;
+            }
+        }
+        
+        @media print {
+            body {
+                max-width: none;
+                padding: 0;
+            }
+            
+            h1, h2, h3 {
+                page-break-after: avoid;
+            }
+            
+            table, blockquote, pre {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>GitHub Enterprise SAML SSO Setup Plan</h1>
+<p><strong>Generated on:</strong> 9/17/2025, 7:42:30 AM<br><strong>Enterprise:</strong> web-ui-test<br><strong>Domain:</strong> your organization domain (e.g., company.onmicrosoft.com)<br><strong>SSO Type:</strong> SAML
+<strong>Env Type:</strong> github.com</p>
+<h2>Overview</h2>
+<p>This plan will guide you through setting up SAML SSO between your GitHub Enterprise (web-ui-test) and Microsoft Entra ID (Azure AD).</p>
+<h2>Prerequisites</h2>
+<ul>
+<li><input disabled="" type="checkbox"> GitHub Enterprise Owner permissions for <code>web-ui-test</code></li>
+<li><input disabled="" type="checkbox"> Microsoft Entra ID Global Administrator or Application Administrator permissions</li>
+</ul>
+<h2>Phase 1: Create Entra ID Enterprise Application</h2>
+<h3>Step 1: Access Azure Portal</h3>
+<ol>
+<li>In the Azure portal, navigate to <a href="https://portal.azure.com/#view/Microsoft_AAD_IAM/StartboardApplicationsMenuBlade/~/AppAppsPreview"><strong>Microsoft Entra ID</strong> &gt; <strong>Enterprise applications</strong></a></li>
+<li>Sign in with your Azure administrator account if prompted</li>
+</ol>
+<h3>Step 2: Create New Application</h3>
+<ol>
+<li>Click <strong>+ New application</strong></li>
+<li>Use <strong>Search application</strong> to search for <strong>GitHub Enterprise Managed User</strong> in the gallery</li>
+<li>Enter a name of <strong>GitHub Enterprise SAML SSO - web-ui-test</strong> for your application</li>
+<li>Click <strong>Create</strong></li>
+</ol>
+<h3>Step 3: Configure Single Sign-On</h3>
+<ol>
+<li><p>In your new application, navigate to <strong>Single sign-on</strong> in the left menu</p>
+</li>
+<li><p>Select <strong>SAML</strong> as the single sign-on method</p>
+</li>
+<li><p>Click <strong>Edit</strong> on the &quot;Basic SAML Configuration&quot; section</p>
+</li>
+<li><p>Configure the following fields:</p>
+<p><strong>Identifier (Entity ID):</strong></p>
+<pre><code>https://github.com/enterprises/web-ui-test
+</code></pre>
+<p><strong>Reply URL (Assertion Consumer Service URL):</strong></p>
+<pre><code>https://github.com/enterprises/web-ui-test/saml/consume
+</code></pre>
+<p><strong>Sign on URL:</strong></p>
+<pre><code>https://github.com/enterprises/web-ui-test/sso
+</code></pre>
+</li>
+<li><p>Click <strong>Save</strong></p>
+</li>
+</ol>
+<h3>Step 4: Download Certificate</h3>
+<ol>
+<li>In the &quot;SAML Signing Certificate&quot; section, download the <strong>Certificate (Base64)</strong></li>
+<li>Save this file - you&#39;ll need it for GitHub configuration</li>
+</ol>
+<h3>Step 5: Note SAML URLs (You&#39;ll need these for GitHub)</h3>
+<p>Copy the following URLs from the &quot;Set up GitHub Enterprise SAML SSO - web-ui-test&quot; section:</p>
+<ul>
+<li><strong>Login URL</strong></li>
+<li><strong>Microsoft Entra Identifier</strong></li>
+</ul>
+<h3>Step 6: Assign Users</h3>
+<ol>
+<li>Navigate to <strong>Users and groups</strong> in the left menu</li>
+<li>Click <strong>+ Add user/group</strong></li>
+<li>Assign users or groups who should have access to GitHub Enterprise</li>
+<li>Select appropriate roles (Enterprise Owner or User)</li>
+</ol>
+<h2>Phase 2: Configure GitHub Enterprise SAML</h2>
+<h3>Step 1: Enable SAML Authentication</h3>
+<ol>
+<li><p>Open your browser and navigate to: <strong><a href="https://github.com/enterprises/web-ui-test/settings/saml_provider/edit">https://github.com/enterprises/web-ui-test/settings/saml_provider/edit</a></strong></p>
+</li>
+<li><p>Configure the following fields:</p>
+<p><strong>Sign-on URL:</strong></p>
+<pre><code>[Use the Login URL from Entra ID]
+</code></pre>
+<p><strong>Issuer:</strong></p>
+<pre><code>[Use the Microsoft Entra Identifier from Entra ID]
+</code></pre>
+<p><strong>Public Certificate:</strong></p>
+<pre><code>[Paste the contents of the Base64 certificate from Entra ID]
+</code></pre>
+</li>
+</ol>
+<h3>Step 2: Test SAML Configuration</h3>
+<ol>
+<li>Click <strong>Test SAML configuration</strong></li>
+<li>You should be redirected to Entra ID for authentication</li>
+<li>After successful authentication, you&#39;ll be redirected back to GitHub</li>
+<li>If the test succeeds, click <strong>Save SAML settings</strong></li>
+</ol>
+<h2>Phase 3: SCIM User Provisioning</h2>
+<p>To automatically provision users from Entra ID to GitHub Enterprise:</p>
+<h3>Step 1: Create SCIM Token</h3>
+<ol>
+<li>Open your browser and navigate to: <strong><a href="https://github.com/settings/tokens/new?scopes=scim:enterprise&description=SCIM%20Token">https://github.com/settings/tokens/new?scopes=scim:enterprise&amp;description=SCIM%20Token</a></strong></li>
+<li>Click <strong>Generate token</strong>, accepting all default settings provided</li>
+<li>Copy the token value when displayed on the next screen</li>
+</ol>
+<h3>Step 2: Configure Provisioning in Entra ID</h3>
+<ol>
+<li>Return to your Azure portal and your GitHub Enterprise application</li>
+<li>Navigate to <strong>Provisioning</strong> in the left menu</li>
+<li>On the next screen, navigate to <strong>Provisioning</strong> under Manage on the left menu</li>
+<li>Set <strong>Provisioning Mode</strong> to <strong>Automatic</strong></li>
+<li>In the <strong>Admin Credentials</strong> section, configure:<ul>
+<li><strong>Tenant URL:</strong> <code>https://api.github.com/scim/v2/enterprises/web-ui-test/</code></li>
+<li><strong>Secret Token:</strong> [The SCIM token from GitHub Step 1]</li>
+</ul>
+</li>
+<li>Click <strong>Test Connection</strong> to verify</li>
+<li>Click <strong>Save</strong></li>
+</ol>
+<h3>Step 3: Start Provisioning</h3>
+<ol>
+<li>Open or refresh the <strong>Provisioning</strong> page within the left menu</li>
+<li>Set <strong>Provisioning Status</strong> to <strong>On</strong></li>
+<li>Click <strong>Save</strong></li>
+<li>Initial synchronization will begin automatically</li>
+</ol>
+<h2>Verification Checklist</h2>
+<ul>
+<li><input disabled="" type="checkbox"> Users can sign in to GitHub Enterprise using their organizational credentials</li>
+<li><input disabled="" type="checkbox"> SSO is redirecting to the correct Entra ID login page</li>
+<li><input disabled="" type="checkbox"> After Entra ID authentication, users are properly redirected to GitHub</li>
+</ul>
+<h2>Troubleshooting</h2>
+<h3>Common Issues</h3>
+<ol>
+<li><strong>Certificate mismatch:</strong> Ensure the certificate copied from Azure matches exactly</li>
+<li><strong>URL configuration:</strong> Verify all URLs are copied correctly without extra spaces</li>
+<li><strong>Permissions:</strong> Ensure users have proper permissions in both systems</li>
+</ol>
+<h3>Support Resources</h3>
+<ul>
+<li><strong>GitHub Enterprise Support:</strong> <a href="https://support.github.com/">https://support.github.com/</a></li>
+<li><strong>Microsoft Entra ID Documentation:</strong> <a href="https://docs.microsoft.com/en-us/azure/active-directory/">https://docs.microsoft.com/en-us/azure/active-directory/</a></li>
+<li><strong>GitHub Enterprise SAML Documentation:</strong> <a href="https://docs.github.com/en/enterprise-cloud@latest/admin/identity-and-access-management/using-saml-for-enterprise-iam">https://docs.github.com/en/enterprise-cloud@latest/admin/identity-and-access-management/using-saml-for-enterprise-iam</a></li>
+</ul>
+<h2>Important URLs for Reference</h2>
+<ul>
+<li><strong>Azure Portal:</strong> <a href="https://portal.azure.com">https://portal.azure.com</a></li>
+<li><strong>GitHub Enterprise Admin:</strong> <a href="https://github.com/enterprises/web-ui-test/settings">https://github.com/enterprises/web-ui-test/settings</a></li>
+<li><strong>Entra ID Enterprise Apps:</strong> <a href="https://portal.azure.com/#view/Microsoft_AAD_IAM/StartboardApplicationsMenuBlade/~/AppAppsPreview">https://portal.azure.com/#view/Microsoft_AAD_IAM/StartboardApplicationsMenuBlade/~/AppAppsPreview</a></li>
+</ul>
+<hr>
+<p><strong>Note:</strong> This plan was generated automatically. Always verify current Microsoft and GitHub documentation for the most up-to-date procedures.</p>
+
+</body>
+</html>

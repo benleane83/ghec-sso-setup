@@ -16,6 +16,7 @@ A command-line tool to automate GitHub Enterprise Cloud SSO setup with Microsoft
 - 🔄 **SCIM Provisioning**: Guides user to configure automatic user provisioning (currently manual)
 - ✅ **Validation**: Built-in checks for enterprise access and prerequisites
 - 🛡️ **Safe Setup**: Plan mode and confirmation prompts for critical actions
+- 🌐 **Web Interface**: Simple web UI for generating setup plans without CLI
 
 This tool automates the complex process described in [Microsoft's GitHub Enterprise SSO documentation](https://learn.microsoft.com/en-us/entra/identity/saas-apps/github-tutorial). Always verify your configuration in both GitHub and Entra ID admin portals after setup.
 
@@ -84,6 +85,38 @@ npm install -g git+https://github.com/benleane83/ghec-sso-setup.git
    ```
 
 3. **Follow the interactive prompts for SCIM setup after GitHub SSO is configured**
+
+## 🌐 Web Interface
+
+For users who prefer a web interface over command line, this tool also provides a simple web UI for generating setup plans.
+
+### Features
+- Clean, responsive web interface
+- Form validation for all required fields  
+- Support for both SAML and OIDC SSO types
+- Support for both github.com and ghe.com environments
+- Automatic HTML file generation and download
+- Same setup plan generation logic as the CLI
+
+### Running the Web Interface
+
+**Local Development:**
+```bash
+# Start the web server
+npm run start:web
+
+# Development mode with auto-reload
+npm run dev:web
+```
+
+The web interface will be available at `http://localhost:3000`
+
+**Azure Web App Deployment:**
+See [WEB-DEPLOYMENT.md](WEB-DEPLOYMENT.md) for detailed deployment instructions to Azure Web App.
+
+### Web UI Screenshots
+
+![Web UI Form](https://github.com/user-attachments/assets/e16ebaae-2b71-4ff9-a837-9850d20f69d0)
 
 ## Commands
 
