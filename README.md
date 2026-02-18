@@ -89,6 +89,7 @@ npm install -g git+https://github.com/benleane83/ghec-sso-setup.git
 ## 🌐 Web Interface
 
 For users who prefer a web interface over command line, this tool also provides a simple web UI for generating setup plans.
+There is a hosted version of this UI at https://ghec-sso-setup.azurewebsites.net/ which is free to use.
 
 ### Features
 - Clean, responsive web interface
